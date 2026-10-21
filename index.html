@@ -1,0 +1,2065 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Patch MP4/MOV headers on your phone for higher-quality TikTok uploads. Works offline; videos are never uploaded.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#F1F2F4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0D0F13" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Keepframe">
+<style>
+@font-face { font-family: "Archivo"; src: url("archivo.woff2") format("woff2-variations"), url("archivo.woff2") format("woff2"); font-weight: 100 900; font-stretch: 62% 125%; font-style: normal; font-display: swap; }
+@font-face { font-family: "Martian Mono"; src: url("martian-mono-400.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Martian Mono"; src: url("martian-mono-500.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+</style>
+<title>Keepframe</title>
+<style>
+/* Layout: one 560px column under a strip of SMPTE colour bars; cards only for the file and the result. */
+:root {
+  --bg: #F1F2F4; --surface: #FFFFFF; --sunken: #E8EAEF; --line: #D8DBE2;
+  --ink: #101217; --ink-2: #4A505E; --ink-3: #737988;
+  --accent: #2345E6; --accent-ink: #FFFFFF; --accent-bg: #E5E9FD;
+  --good: #12804A; --good-bg: #E1F3E8; --warn: #9E5800; --warn-bg: #FAEDD9; --bad: #BE3329; --bad-bg: #FBE3E0;
+  --b1: #C0C0C0; --b2: #C0C000; --b3: #00C0C0; --b4: #00C000; --b5: #C000C0; --b6: #C00000; --b7: #0000C0;
+  --display: "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --body: "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "Martian Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --r: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0D0F13; --surface: #161920; --sunken: #1E222A; --line: #2B303B;
+    --ink: #EDEFF3; --ink-2: #A9AFBC; --ink-3: #747B89;
+    --accent: #8FA1FF; --accent-ink: #0D0F13; --accent-bg: #1C2342;
+    --good: #4FCB8B; --good-bg: #13271C; --warn: #F0B34A; --warn-bg: #2A2112; --bad: #FF7C73; --bad-bg: #2E1716;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0D0F13; --surface: #161920; --sunken: #1E222A; --line: #2B303B;
+  --ink: #EDEFF3; --ink-2: #A9AFBC; --ink-3: #747B89;
+  --accent: #8FA1FF; --accent-ink: #0D0F13; --accent-bg: #1C2342;
+  --good: #4FCB8B; --good-bg: #13271C; --warn: #F0B34A; --warn-bg: #2A2112; --bad: #FF7C73; --bad-bg: #2E1716;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body); -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 560px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.bars, .minibars { display: grid; grid-template-columns: repeat(7, 1fr); }
+.bars { height: 6px; }
+.bars span:nth-child(1), .minibars span:nth-child(1) { background: var(--b1); }
+.bars span:nth-child(2), .minibars span:nth-child(2) { background: var(--b2); }
+.bars span:nth-child(3), .minibars span:nth-child(3) { background: var(--b3); }
+.bars span:nth-child(4), .minibars span:nth-child(4) { background: var(--b4); }
+.bars span:nth-child(5), .minibars span:nth-child(5) { background: var(--b5); }
+.bars span:nth-child(6), .minibars span:nth-child(6) { background: var(--b6); }
+.bars span:nth-child(7), .minibars span:nth-child(7) { background: var(--b7); }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 14px 4px; }
+.brand { font-family: var(--display); font-stretch: 125%; font-weight: 800; font-size: 19px; letter-spacing: -0.01em; display: flex; align-items: center; gap: 9px; }
+.brand i { width: 14px; height: 18px; border: 2px solid var(--ink); border-radius: 3px; position: relative; }
+.brand i::after { content: ""; position: absolute; inset: 3px; background: var(--ink); border-radius: 1px; }
+.pill { font: 500 10.5px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; color: var(--good); background: var(--good-bg); padding: 6px 8px; border-radius: 99px; white-space: nowrap; }
+h1 { font-family: var(--display); font-stretch: 118%; font-weight: 800; font-size: clamp(27px, 7.4vw, 36px); line-height: 1.04; letter-spacing: -0.025em; margin: 22px 0 10px; text-wrap: balance; }
+.lede { color: var(--ink-2); margin: 0 0 18px; max-width: 46ch; }
+h2 { font: 600 11px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 10px; }
+section { margin-top: 26px; }
+.drop { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 14px; width: 100%; padding: 16px; border: 1.5px dashed var(--line); border-radius: var(--r); background: transparent; color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-bg); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.drop .ico { width: 42px; height: 42px; border-radius: 11px; background: var(--ink); color: var(--bg); display: grid; place-items: center; }
+.drop b { display: block; font-size: 16px; font-weight: 650; }
+.drop small { color: var(--ink-3); font-size: 12.5px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; }
+.file { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 14px; align-items: start; }
+.monitor { position: relative; width: 92px; aspect-ratio: 9 / 16; max-height: 164px; max-width: 100%; background: #000; border-radius: 6px; overflow: hidden; justify-self: center; cursor: pointer; }
+.monitor video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.monitor .crop { position: absolute; width: 9px; height: 9px; border: 0 solid rgba(255, 255, 255, 0.85); pointer-events: none; }
+.crop.tl { top: 5px; left: 5px; border-top-width: 1.5px; border-left-width: 1.5px; }
+.crop.tr { top: 5px; right: 5px; border-top-width: 1.5px; border-right-width: 1.5px; }
+.crop.bl { bottom: 5px; left: 5px; border-bottom-width: 1.5px; border-left-width: 1.5px; }
+.crop.br { bottom: 5px; right: 5px; border-bottom-width: 1.5px; border-right-width: 1.5px; }
+.monitor .tc { position: absolute; left: 0; right: 0; bottom: 0; font: 500 8.5px/1 var(--mono); color: #fff; background: rgba(0, 0, 0, 0.62); padding: 5px 4px; text-align: center; font-variant-numeric: tabular-nums; }
+.monitor .nopv { position: absolute; inset: 0; display: grid; place-items: center; color: #9aa0ad; font: 500 9px/1.3 var(--mono); text-align: center; padding: 6px; }
+.fname { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.fname strong { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tag { font: 500 9.5px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 4px 6px; border-radius: 5px; background: var(--accent-bg); color: var(--accent); flex: none; }
+.fsub { color: var(--ink-3); font-size: 12.5px; margin-top: 2px; }
+.readout { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 10px; margin: 12px 0 0; }
+.readout div { min-width: 0; }
+.readout dt { font-size: 11px; color: var(--ink-3); }
+.readout dd { margin: 2px 0 0; font: 500 12px/1.35 var(--mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; padding: 0; list-style: none; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 550; padding: 5px 9px 5px 7px; border-radius: 8px; }
+.chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+.chip.good { color: var(--good); background: var(--good-bg); }
+.chip.warn { color: var(--warn); background: var(--warn-bg); }
+.chip.bad { color: var(--bad); background: var(--bad-bg); }
+.chip.info { color: var(--accent); background: var(--accent-bg); }
+.queue { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.qrow { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; text-align: left; padding: 10px 12px; border-radius: 11px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
+.qrow[aria-current="true"] { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.qname { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.qmeta { grid-column: 1; font: 500 11px/1.4 var(--mono); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.qrow .chip { grid-column: 2; grid-row: 1 / span 2; font-size: 11.5px; }
+.seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; background: var(--sunken); border-radius: 12px; }
+.seg button { font: 600 13.5px/1.2 var(--body); color: var(--ink-2); background: transparent; border: 0; border-radius: 9px; padding: 10px 4px; cursor: pointer; }
+.seg button[aria-checked="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+.seg button.na { color: var(--ink-3); }
+.seg .star { display: block; font: 500 9px/1 var(--mono); letter-spacing: 0.05em; color: var(--accent); margin-top: 4px; text-transform: uppercase; }
+.seg button.na .star { color: var(--ink-3); }
+.mdesc { margin: 12px 2px 0; color: var(--ink-2); font-size: 14px; }
+.mdesc .src { display: block; font: 500 11px/1.4 var(--mono); color: var(--ink-3); margin-bottom: 4px; }
+.mdesc .why { display: block; margin-top: 6px; color: var(--warn); font-size: 13px; }
+.reenc { margin-top: 16px; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--surface); }
+.switchrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; cursor: pointer; }
+.switchrow b { display: block; font-size: 14.5px; font-weight: 650; }
+.switchrow small { display: block; color: var(--ink-3); font-size: 12.5px; line-height: 1.4; }
+.switch { appearance: none; -webkit-appearance: none; width: 46px; height: 28px; border-radius: 99px; background: var(--sunken); border: 1px solid var(--line); position: relative; cursor: pointer; margin: 0; flex: none; transition: background 0.15s; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--ink-3); transition: transform 0.15s, background 0.15s; }
+.switch:checked { background: var(--accent); border-color: var(--accent); }
+.switch:checked::after { transform: translateX(18px); background: var(--accent-ink); }
+.switch:disabled { opacity: 0.45; cursor: not-allowed; }
+.reopts { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 14px; }
+.reopts label { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); }
+.reopts select { font: 500 13px var(--mono); color: var(--ink); background: var(--sunken); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+.reopts input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); margin: 0; }
+.small { font-size: 12.5px; color: var(--ink-3); margin: 8px 0 0; width: 100%; }
+.small.warn { color: var(--warn); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 50px; padding: 0 20px; border-radius: 12px; border: 0; font: 650 15.5px/1 var(--body); cursor: pointer; text-decoration: none; }
+.btn.primary { background: var(--ink); color: var(--bg); }
+.btn.accent { background: var(--accent); color: var(--accent-ink); }
+.btn.ghost { background: transparent; color: var(--ink); border: 1.5px solid var(--line); }
+.btn.mini { min-height: 36px; padding: 0 14px; font-size: 13.5px; border-radius: 9px; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn.wide { width: 100%; }
+.gobar { margin-top: 16px; }
+.progress { margin-top: 12px; }
+.ptrack { height: 8px; border-radius: 4px; background: var(--sunken); overflow: hidden; }
+.pfill { height: 100%; width: 0; background: linear-gradient(90deg, var(--b1) 0 14.28%, var(--b2) 14.28% 28.57%, var(--b3) 28.57% 42.85%, var(--b4) 42.85% 57.14%, var(--b5) 57.14% 71.42%, var(--b6) 71.42% 85.71%, var(--b7) 85.71% 100%); background-size: 100vw 100%; transition: width 0.2s linear; }
+.prow { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 8px; font: 500 12px/1.4 var(--mono); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.linkbtn { background: none; border: 0; padding: 4px 0; font: 600 13px var(--body); color: var(--bad); cursor: pointer; }
+.error { margin: 12px 0 0; padding: 12px 14px; border-radius: 12px; background: var(--bad-bg); color: var(--bad); font-size: 14px; }
+.result { border-color: color-mix(in srgb, var(--good) 40%, var(--line)); }
+.result .head { display: flex; align-items: center; gap: 10px; }
+.result .tick { width: 28px; height: 28px; border-radius: 50%; background: var(--good); color: var(--surface); display: grid; place-items: center; flex: none; }
+.result .head strong { font-size: 16px; }
+.result .meta { color: var(--ink-2); font-size: 13px; margin: 8px 0 0; overflow-wrap: anywhere; }
+.outs { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.outs li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.outs code { display: block; font: 500 12px/1.4 var(--mono); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outs small { display: block; color: var(--ink-3); font-size: 12px; }
+.outs .bad small { color: var(--bad); }
+.minibars { height: 4px; border-radius: 2px; overflow: hidden; margin: 14px 0; }
+.result.fresh .minibars span { animation: lit 0.32s ease-out both; }
+.result.fresh .minibars span:nth-child(2) { animation-delay: 0.05s; } .result.fresh .minibars span:nth-child(3) { animation-delay: 0.1s; }
+.result.fresh .minibars span:nth-child(4) { animation-delay: 0.15s; } .result.fresh .minibars span:nth-child(5) { animation-delay: 0.2s; }
+.result.fresh .minibars span:nth-child(6) { animation-delay: 0.25s; } .result.fresh .minibars span:nth-child(7) { animation-delay: 0.3s; }
+@keyframes lit { from { opacity: 0.12; transform: scaleY(0.4); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .result.fresh .minibars span { animation: none; } .pfill, .switch, .switch::after { transition: none; } }
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.actions .btn { padding: 0 10px; white-space: nowrap; font-size: 15px; }
+.savemsg { font-size: 13px; color: var(--ink-2); margin: 10px 0 0; min-height: 1em; }
+details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+summary { cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--ink-2); }
+.atoms { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 7px; }
+.atoms li { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 10px; font-size: 13px; color: var(--ink-2); }
+.atoms code { font: 500 11.5px/1.5 var(--mono); color: var(--ink); }
+ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: s; display: grid; gap: 12px; }
+ol.steps li { counter-increment: s; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 10px; color: var(--ink-2); font-size: 14px; }
+ol.steps li::before { content: counter(s); font: 500 11px/24px var(--mono); text-align: center; width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--line); color: var(--ink); }
+ol.steps b, .tips b { color: var(--ink); font-weight: 650; }
+.tips { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; color: var(--ink-2); font-size: 14px; }
+.spec { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.spec th { text-align: left; font-weight: 500; color: var(--ink-3); padding: 8px 10px 8px 0; width: 38%; border-bottom: 1px solid var(--line); vertical-align: top; }
+.spec td { padding: 8px 0; border-bottom: 1px solid var(--line); font: 500 12.5px/1.45 var(--mono); }
+footer { margin: 34px 0 40px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 12.5px; }
+footer p { margin: 0 0 8px; max-width: 60ch; }
+@media (max-width: 360px) {
+  .readout { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .actions { grid-template-columns: 1fr; }
+  .file { grid-template-columns: 76px minmax(0, 1fr); }
+  .monitor { width: 76px; }
+}
+</style>
+</head>
+<body>
+
+<div class="bars" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><i aria-hidden="true"></i>Keepframe</div>
+    <span class="pill">On-device</span>
+  </header>
+
+  <h1>Patch the file. Keep the frames.</h1>
+  <p class="lede">Rewrites your video's MP4 header the way the popular TikTok patchers do, so TikTok compresses it less. Frames are copied bit for bit, and nothing is uploaded.</p>
+
+  <button type="button" class="drop" id="drop">
+    <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m6 10 6-6 6 6"/><path d="M4 20h16"/></svg></span>
+    <span><b>Choose videos</b><small>One or several MP4 or MOV files. On iPhone use "Choose File", not Photo Library.</small></span>
+  </button>
+  <input type="file" id="file" accept="video/*,.mp4,.mov,.m4v" multiple hidden>
+
+  <section aria-labelledby="fileH">
+    <h2 id="fileH">File</h2>
+    <div class="card">
+      <div class="file">
+        <div class="monitor" id="monitor" title="Tap to play">
+          <video id="pv" muted playsinline preload="metadata"></video>
+          <span class="nopv" id="nopv" hidden>No preview</span>
+          <span class="crop tl"></span><span class="crop tr"></span><span class="crop bl"></span><span class="crop br"></span>
+          <span class="tc" id="tc">00:00:01:00</span>
+        </div>
+        <div style="min-width:0">
+          <div class="fname"><strong id="fname">sample-bars.mp4</strong><span class="tag" id="ftag">Sample</span></div>
+          <div class="fsub" id="fsub">21 KB · MP4 · built-in test clip</div>
+          <ul class="chips" id="chips">
+            <li class="chip good">H.264</li><li class="chip good">1080p</li><li class="chip good">60 fps</li><li class="chip warn">0.05 Mb/s: very low bitrate</li><li class="chip good">AAC audio</li>
+          </ul>
+        </div>
+      </div>
+      <dl class="readout">
+        <div><dt>Resolution</dt><dd id="rRes">1080 × 1920</dd></div>
+        <div><dt>Frame rate</dt><dd id="rFps">60 fps</dd></div>
+        <div><dt>Length</dt><dd id="rLen">0:01.0</dd></div>
+        <div><dt>Codec</dt><dd id="rCodec">H.264</dd></div>
+        <div><dt>Video bitrate</dt><dd id="rRate">0.05 Mb/s</dd></div>
+        <div><dt>Audio</dt><dd id="rAudio">AAC · 48 kHz</dd></div>
+      </dl>
+    </div>
+    <div id="queueWrap" hidden>
+      <ul class="queue" id="queue" aria-label="Chosen videos"></ul>
+    </div>
+  </section>
+
+  <section aria-labelledby="methodH">
+    <h2 id="methodH">Method</h2>
+    <div class="seg" role="radiogroup" aria-labelledby="methodH" id="seg">
+      <button type="button" role="radio" aria-checked="true" data-m="passthrough" id="m-passthrough">Passthrough<span class="star">Default</span></button>
+      <button type="button" role="radio" aria-checked="false" data-m="density" id="m-density">Density<span class="star">No audio OK</span></button>
+      <button type="button" role="radio" aria-checked="false" data-m="fps" id="m-fps">FPS<span class="star">60 / 120</span></button>
+    </div>
+    <p class="mdesc" id="mdesc"><span class="src">Editing News method · touches mvhd, trak, udta, tail</span>Rebuilds the header the way the Editing News patcher does. The audio track is cloned with a 10× sample table, the length is marked unknown, and a small pad goes on the end. TikTok's transcoder is reported to skip these files and keep your own encode.</p>
+
+    <div class="reenc">
+      <label class="switchrow" for="reOn">
+        <span><b>Re-encode first</b><small>Converts to H.264 on this phone before patching, with the same fixed keyframes the reference patcher uses. Good for HEVC or low-bitrate clips.</small></span>
+        <input type="checkbox" class="switch" id="reOn" role="switch">
+      </label>
+      <div class="reopts" id="reOpts" hidden>
+        <label for="reRate">Bitrate
+          <select id="reRate">
+            <option value="auto">Auto</option>
+            <option value="10">10 Mb/s</option>
+            <option value="15">15 Mb/s</option>
+            <option value="20">20 Mb/s</option>
+            <option value="25">25 Mb/s</option>
+          </select>
+        </label>
+        <label for="re1080"><input type="checkbox" id="re1080" checked> Limit to 1080p</label>
+        <p class="small" id="reTime">Takes about as long as the clip plays. Keep this page open with the screen on.</p>
+      </div>
+      <p class="small warn" id="reNo" hidden>This browser can't re-encode video. Use Chrome on Android, or Safari on iPhone with iOS 16.4 or later.</p>
+    </div>
+
+    <div class="gobar"><button type="button" class="btn accent wide" id="go">Patch video</button></div>
+    <div class="progress" id="prog" hidden>
+      <div class="ptrack"><div class="pfill" id="pfill"></div></div>
+      <div class="prow"><span id="ptext">Starting…</span><button type="button" class="linkbtn" id="cancel">Cancel</button></div>
+    </div>
+    <p class="error" id="err" role="alert" hidden></p>
+  </section>
+
+  <section id="resultSec" hidden aria-live="polite">
+    <h2>Result</h2>
+    <div class="card result" id="result">
+      <div class="head">
+        <span class="tick" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></span>
+        <strong id="rHead">Ready to upload</strong>
+      </div>
+      <ul class="outs" id="outs"></ul>
+      <p class="meta" id="outCheck"></p>
+      <p class="meta" id="outNote"></p>
+      <div class="minibars" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      <div class="actions">
+        <button type="button" class="btn primary" id="save">Save video</button>
+        <a class="btn ghost" href="https://www.tiktok.com/tiktokstudio/upload" target="_blank" rel="noopener">TikTok Studio ↗</a>
+      </div>
+      <p class="savemsg" id="saveMsg"></p>
+      <details>
+        <summary>What changed in the file</summary>
+        <ul class="atoms" id="changes"></ul>
+      </details>
+    </div>
+  </section>
+
+  <section aria-labelledby="upH">
+    <h2 id="upH">Upload it right</h2>
+    <ol class="steps">
+      <li><span><b>Upload in TikTok Studio from a browser.</b> On your phone, open Chrome, tap ⋮ and turn on Desktop site. The TikTok app re-encodes videos before uploading.</span></li>
+      <li><span><b>Post the patched file exactly as saved.</b> Trimming, TikTok sounds, filters or text added in TikTok make it compress again.</span></li>
+      <li><span><b>Set visibility to Everyone,</b> not Only me. If you see an HD or high-quality upload option, turn it on.</span></li>
+      <li><span><b>A length of 0:00 in your gallery is normal</b> after Passthrough. The video still plays.</span></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="exH">
+    <h2 id="exH">Export settings that work best</h2>
+    <table class="spec">
+      <tr><th>Codec</th><td>H.264 (turn HEVC off)</td></tr>
+      <tr><th>Resolution</th><td>1080 × 1920</td></tr>
+      <tr><th>Frame rate</th><td>30 or 60 fps, constant</td></tr>
+      <tr><th>Bitrate</th><td>10–20 Mb/s</td></tr>
+      <tr><th>Audio</th><td>AAC, 48 kHz</td></tr>
+    </table>
+  </section>
+
+  <section aria-labelledby="hsH">
+    <h2 id="hsH">Keep it one tap away</h2>
+    <ul class="tips">
+      <li><b>Install:</b> in Chrome tap ⋮, then Install app (or Add to Home screen). After that it works offline.</li>
+      <li><b>Share straight in:</b> once installed, share a video from your gallery or CapCut and pick Keepframe.</li>
+      <li><b>iPhone:</b> in Safari tap Share, then Add to Home Screen. Sharing into the app isn't supported on iPhone.</li>
+    </ul>
+  </section>
+
+  <footer>
+    <p>Passthrough reproduces the Editing News patcher as published open source by buwryme. Density follows NoBlur's frame-density inflation. FPS follows 120fps-method. Re-encoding uses your phone's own video encoder through WebCodecs. TikTok can change how it processes uploads at any time, so results vary between accounts and over time.</p>
+    <p>Not affiliated with TikTok. Your video is read and rewritten in this browser only.</p>
+  </footer>
+</div>
+
+<script>
+/* Keepframe core: reads an MP4/MOV header (moov) and builds a patched copy.
+   The media data (mdat) is never loaded or changed: output is a Blob made of
+   slices of the original file plus a rebuilt header. Works in browsers and Node 20+. */
+(function (root) {
+  'use strict';
+
+  class KFError extends Error {
+    constructor(code, message) { super(message); this.code = code; }
+  }
+
+  // ---------- bytes ----------
+  const te = new TextEncoder();
+  const u16 = (b, o) => (b[o] << 8) | b[o + 1];
+  const u32 = (b, o) => b[o] * 16777216 + ((b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]);
+  const i32 = (b, o) => (b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3];
+  const u64 = (b, o) => u32(b, o) * 4294967296 + u32(b, o + 4);
+  const cc = (b, o) => String.fromCharCode(b[o], b[o + 1], b[o + 2], b[o + 3]);
+  function put32(b, o, v) {
+    v = v >>> 0;
+    b[o] = v >>> 24; b[o + 1] = (v >>> 16) & 255; b[o + 2] = (v >>> 8) & 255; b[o + 3] = v & 255;
+  }
+  function put64(b, o, v) {
+    const hi = Math.floor(v / 4294967296);
+    put32(b, o, hi); put32(b, o + 4, v - hi * 4294967296);
+  }
+  const ascii = (s) => Uint8Array.from(s, (ch) => ch.charCodeAt(0) & 255); // latin-1, so '©' -> 0xA9
+  const zeros = (n) => new Uint8Array(n);
+  function be32(...vals) { const a = new Uint8Array(vals.length * 4); vals.forEach((v, i) => put32(a, i * 4, v)); return a; }
+  function allFF(b, o, n) { for (let i = 0; i < n; i++) if (b[o + i] !== 255) return false; return true; }
+
+  async function readBytes(blob, start, end) {
+    return new Uint8Array(await blob.slice(start, end).arrayBuffer());
+  }
+
+  // ---------- parsing ----------
+  async function scanTop(blob) {
+    const boxes = [];
+    const size = blob.size;
+    let pos = 0;
+    let trailing = 0;
+    while (pos < size) {
+      if (size - pos < 8) { trailing = size - pos; break; }
+      const h = await readBytes(blob, pos, Math.min(pos + 16, size));
+      let s = u32(h, 0);
+      const type = cc(h, 4);
+      let hdr = 8;
+      if (s === 1) {
+        if (h.length < 16) { trailing = size - pos; break; }
+        s = u64(h, 8); hdr = 16;
+      } else if (s === 0) {
+        s = size - pos;
+      }
+      if (s < hdr) { trailing = size - pos; break; }
+      if (pos + s > size) {
+        if (type === 'mdat' || type === 'moov') {
+          throw new KFError('truncated', 'This file is incomplete: its data ends early. Export or copy it again.');
+        }
+        trailing = size - pos; break;
+      }
+      boxes.push({ type, start: pos, end: pos + s, hdr, size: s });
+      pos += s;
+    }
+    return { boxes, trailing };
+  }
+
+  const CONTAINERS = new Set(['moov', 'trak', 'mdia', 'minf', 'stbl', 'edts']);
+  function parseKids(b, start, end) {
+    const kids = [];
+    let p = start;
+    while (p + 8 <= end) {
+      let s = u32(b, p);
+      let h = 8;
+      const type = cc(b, p + 4);
+      if (s === 1) { if (p + 16 > end) break; s = u64(b, p + 8); h = 16; } else if (s === 0) s = end - p;
+      if (s < h || p + s > end) break;
+      const n = { type, start: p, end: p + s, hdr: h };
+      if (CONTAINERS.has(type)) n.kids = parseKids(b, p + h, p + s);
+      kids.push(n);
+      p += s;
+    }
+    return kids;
+  }
+  const kid = (n, t) => (n && n.kids ? n.kids.find((k) => k.type === t) : undefined);
+  const raw = (b, n) => ({ raw: b.subarray(n.start, n.end) });
+  const P = (n) => n.start + n.hdr; // payload start (for full boxes: version byte)
+
+  function sttsRead(b, n) {
+    const p = P(n);
+    const cnt = Math.min(u32(b, p + 4), Math.floor((n.end - p - 8) / 8));
+    let samples = 0, dur = 0, minD = Infinity, maxD = 0;
+    for (let i = 0; i < cnt; i++) {
+      const c = u32(b, p + 8 + i * 8), d = u32(b, p + 12 + i * 8);
+      samples += c; dur += c * d;
+      if (c > 0 && d > 0) { if (d < minD) minD = d; if (d > maxD) maxD = d; }
+    }
+    return { entries: cnt, samples, dur, minD, maxD, bytes: b.subarray(p + 8, p + 8 + cnt * 8) };
+  }
+
+  // Sample sizes: {count, total, at(i)}; arr() expands to a Uint32Array.
+  function sizesRead(b, n) {
+    const p = P(n);
+    if (n.type === 'stsz') {
+      const ss = u32(b, p + 4);
+      let cnt = u32(b, p + 8);
+      if (ss !== 0) return { count: cnt, total: ss * cnt, at: () => ss, arr: () => new Uint32Array(cnt).fill(ss) };
+      cnt = Math.min(cnt, Math.floor((n.end - p - 12) / 4));
+      let total = 0;
+      for (let i = 0; i < cnt; i++) total += u32(b, p + 12 + i * 4);
+      const at = (i) => u32(b, p + 12 + i * 4);
+      return { count: cnt, total, at, arr: () => { const a = new Uint32Array(cnt); for (let i = 0; i < cnt; i++) a[i] = at(i); return a; } };
+    }
+    // stz2 (compact sizes)
+    const fs = b[p + 7];
+    const cnt = u32(b, p + 8);
+    const q = p + 12;
+    const at = (i) => (fs === 4 ? ((i & 1) ? b[q + (i >> 1)] & 15 : b[q + (i >> 1)] >> 4) : fs === 8 ? b[q + i] : u16(b, q + 2 * i));
+    let total = 0;
+    for (let i = 0; i < cnt; i++) total += at(i);
+    return { count: cnt, total, at, arr: () => { const a = new Uint32Array(cnt); for (let i = 0; i < cnt; i++) a[i] = at(i); return a; } };
+  }
+
+  function stscRead(b, n) {
+    const p = P(n);
+    const cnt = Math.min(u32(b, p + 4), Math.floor((n.end - p - 8) / 12));
+    const e = [];
+    for (let i = 0; i < cnt; i++) {
+      const o = p + 8 + i * 12;
+      e.push([u32(b, o), u32(b, o + 4), u32(b, o + 8)]);
+    }
+    return e;
+  }
+
+  function chunksRead(b, n) {
+    const p = P(n);
+    const is64 = n.type === 'co64';
+    const w = is64 ? 8 : 4;
+    const cnt = Math.min(u32(b, p + 4), Math.floor((n.end - p - 8) / w));
+    const a = new Float64Array(cnt);
+    for (let i = 0; i < cnt; i++) a[i] = is64 ? u64(b, p + 8 + i * 8) : u32(b, p + 8 + i * 4);
+    return a;
+  }
+
+  function stscTotal(entries, chunkCount) {
+    let total = 0;
+    for (let i = 0; i < entries.length; i++) {
+      const [first, spc] = entries[i];
+      const next = i + 1 < entries.length ? entries[i + 1][0] : chunkCount + 1;
+      if (next > first) total += (next - first) * spc;
+    }
+    return total;
+  }
+
+  // Returns (sampleIndex) -> {off, size} using the track's own tables.
+  function makeLocator(b, t) {
+    const sizes = sizesRead(b, t.b.stsz || t.b.stz2);
+    const stsc = stscRead(b, t.b.stsc);
+    const chunks = chunksRead(b, t.b.stco || t.b.co64);
+    return (idx) => {
+      let sample = 0;
+      for (let r = 0; r < stsc.length; r++) {
+        const [first, spc] = stsc[r];
+        const next = r + 1 < stsc.length ? stsc[r + 1][0] : chunks.length + 1;
+        const n = Math.max(0, next - first) * spc;
+        if (idx < sample + n) {
+          const rel = idx - sample;
+          const ci = first - 1 + Math.floor(rel / spc);
+          let off = chunks[ci];
+          for (let s = idx - (rel % spc); s < idx; s++) off += sizes.at(s);
+          return { off, size: sizes.at(idx) };
+        }
+        sample += n;
+      }
+      return null;
+    };
+  }
+
+  function trackInfo(b, trak) {
+    const mdia = kid(trak, 'mdia');
+    const minf = kid(mdia, 'minf');
+    const stbl = kid(minf, 'stbl');
+    const t = { trak, tkhd: kid(trak, 'tkhd'), mdia, mdhd: kid(mdia, 'mdhd'), hdlr: kid(mdia, 'hdlr'), minf, stbl, b: {} };
+    if (stbl) for (const k of stbl.kids) if (!t.b[k.type]) t.b[k.type] = k;
+    t.handler = t.hdlr ? cc(b, P(t.hdlr) + 8) : '????';
+    if (t.mdhd) {
+      const p = P(t.mdhd);
+      const v = b[p];
+      t.timescale = v === 1 ? u32(b, p + 20) : u32(b, p + 12);
+      t.mdDuration = v === 1 ? (allFF(b, p + 24, 8) ? 0 : u64(b, p + 24)) : (allFF(b, p + 16, 4) ? 0 : u32(b, p + 16));
+    }
+    const sd = t.b.stsd;
+    if (sd && u32(b, P(sd) + 4) > 0) {
+      const e = P(sd) + 8;
+      t.entry = { start: e, size: u32(b, e), fourcc: cc(b, e + 4) };
+    }
+    t.usable = !!(t.entry && (t.b.stsz || t.b.stz2) && t.b.stsc && (t.b.stco || t.b.co64) && t.b.stts);
+    t.samples = t.usable ? sizesRead(b, t.b.stsz || t.b.stz2).count : 0;
+    return t;
+  }
+
+  async function load(blob) {
+    const { boxes, trailing } = await scanTop(blob);
+    const moov = boxes.find((x) => x.type === 'moov');
+    if (!moov) throw new KFError('no_moov', "This doesn't look like a finished MP4 or MOV video (no header found).");
+    if (moov.size > 512 * 1024 * 1024) throw new KFError('huge_header', 'The video header is unusually large. Re-export the clip and try again.');
+    const mb = await readBytes(blob, moov.start, moov.end);
+    const root = { type: 'moov', start: 0, end: mb.length, hdr: moov.hdr };
+    root.kids = parseKids(mb, moov.hdr, mb.length);
+    const mvhd = kid(root, 'mvhd');
+    if (!mvhd) throw new KFError('no_mvhd', 'The video header is damaged (no movie header).');
+    const traks = root.kids.filter((k) => k.type === 'trak').map((k) => trackInfo(mb, k));
+    const ftyp = boxes.find((x) => x.type === 'ftyp');
+    const ftypBytes = ftyp && ftyp.size <= 4096 ? await readBytes(blob, ftyp.start, ftyp.end) : null;
+    const mdats = boxes.filter((x) => x.type === 'mdat');
+    let tail = null;
+    if (trailing >= 8) {
+      const tb = await readBytes(blob, blob.size - trailing, blob.size - trailing + 8);
+      if (cc(tb, 4) === 'VOID') tail = 'void';
+    }
+    const fragmented = boxes.some((x) => x.type === 'moof') || !!kid(root, 'mvex');
+    return { blob, boxes, trailing, tail, moov, mb, root, mvhd, traks, ftyp, ftypBytes, mdats, fragmented };
+  }
+
+  function pickTracks(f) {
+    let video = null, audio = null;
+    for (const t of f.traks) {
+      if (!t.usable) continue;
+      if (t.handler === 'vide' && (!video || t.samples > video.samples)) video = t;
+      if (t.handler === 'soun' && !audio) audio = t;
+    }
+    return { video, audio };
+  }
+
+  // ---------- summary for the UI ----------
+  const VIDEO_CODECS = { avc1: 'H.264', avc3: 'H.264', hvc1: 'HEVC', hev1: 'HEVC', dvh1: 'HEVC', dvhe: 'HEVC', dva1: 'H.264', dvav: 'H.264', av01: 'AV1', vp09: 'VP9', vp08: 'VP8', mp4v: 'MPEG-4', apch: 'ProRes', apcn: 'ProRes', apcs: 'ProRes', apco: 'ProRes', ap4h: 'ProRes', ap4x: 'ProRes', jpeg: 'MJPEG' };
+  const AUDIO_CODECS = { mp4a: 'AAC', 'ac-3': 'AC-3', 'ec-3': 'E-AC-3', Opus: 'Opus', fLaC: 'FLAC', alac: 'ALAC', lpcm: 'PCM', sowt: 'PCM', twos: 'PCM', in24: 'PCM', in32: 'PCM', fl32: 'PCM', '.mp3': 'MP3', samr: 'AMR' };
+  // Dummy sample sizes per video codec (NoBlur / Editing News values)
+  const DUMMY = { avc1: 8, avc2: 8, avc3: 8, avc4: 8, hvc1: 16, hev1: 16, dvh1: 16, dvhe: 16, dvav: 8, dva1: 8, vp08: 4, vp09: 4, av01: 4, mp4v: 8 };
+
+  function videoDetails(b, t) {
+    const e = t.entry;
+    const out = { fourcc: e.fourcc, codec: VIDEO_CODECS[e.fourcc] || e.fourcc.trim().toUpperCase(), hdr: null };
+    out.codedW = u16(b, e.start + 32);
+    out.codedH = u16(b, e.start + 34);
+    // HDR flags from sample-entry children (start after the 78-byte visual sample entry body)
+    const kids = parseKids(b, e.start + 86, Math.min(e.start + e.size, t.b.stsd.end));
+    for (const k of kids) {
+      if (k.type === 'dvcC' || k.type === 'dvvC' || k.type === 'dvwC') out.hdr = 'Dolby Vision';
+      if (k.type === 'colr' && !out.hdr) {
+        const p = P(k);
+        const kind = cc(b, p);
+        if (kind === 'nclx' || kind === 'nclc') {
+          const tr = u16(b, p + 6);
+          if (tr === 16) out.hdr = 'HDR10';
+          else if (tr === 18) out.hdr = 'HLG';
+        }
+      }
+    }
+    // presentation size and rotation from tkhd
+    let w = out.codedW, h = out.codedH, rot = 0;
+    if (t.tkhd) {
+      const p = P(t.tkhd);
+      const v = b[p];
+      const m = p + (v === 1 ? 52 : 40);
+      const a = i32(b, m) / 65536, bb = i32(b, m + 4) / 65536;
+      rot = ((Math.round(Math.atan2(bb, a) * 180 / Math.PI) % 360) + 360) % 360;
+      const tw = u32(b, t.tkhd.end - 8) / 65536, th = u32(b, t.tkhd.end - 4) / 65536;
+      if (tw >= 16 && th >= 16) { w = Math.round(tw); h = Math.round(th); }
+    }
+    if (rot === 90 || rot === 270) { const x = w; w = h; h = x; }
+    out.width = w; out.height = h; out.rotation = rot;
+    const st = sttsRead(b, t.b.stts);
+    const sz = sizesRead(b, t.b.stsz || t.b.stz2);
+    out.frames = sz.count;
+    out.fps = st.dur > 0 ? (st.samples * t.timescale) / st.dur : 0;
+    out.duration = t.mdDuration ? t.mdDuration / t.timescale : st.dur / t.timescale;
+    out.declaredFps = out.duration > 0 ? sz.count / out.duration : 0;
+    out.vfr = st.minD !== Infinity && st.maxD / st.minD > 1.08 && st.entries > 2;
+    out.bitrate = out.duration > 0 ? (sz.total * 8) / out.duration : 0;
+    out.bframes = !!t.b.ctts;
+    return out;
+  }
+
+  function audioDetails(b, t) {
+    const e = t.entry;
+    const rateField = u32(b, e.start + 32) >>> 16;
+    return {
+      fourcc: e.fourcc,
+      codec: AUDIO_CODECS[e.fourcc] || e.fourcc.trim(),
+      channels: u16(b, e.start + 24),
+      sampleRate: e.fourcc === 'mp4a' && t.timescale >= 8000 ? t.timescale : (rateField || t.timescale),
+    };
+  }
+
+  function summarize(f, sel) {
+    const b = f.mb;
+    const p = P(f.mvhd);
+    const mv1 = b[p] === 1;
+    const mvTs = mv1 ? u32(b, p + 20) : u32(b, p + 12);
+    const mvUnknown = mv1 ? allFF(b, p + 24, 8) : allFF(b, p + 16, 4);
+    const mvDur = mvUnknown ? 0 : (mv1 ? u64(b, p + 24) : u32(b, p + 16)) / mvTs;
+    const video = sel.video ? videoDetails(b, sel.video) : null;
+    const audio = sel.audio ? audioDetails(b, sel.audio) : null;
+    const duration = video ? video.duration : mvDur;
+    const moovFirst = f.mdats.length ? f.moov.start < f.mdats[0].start : true;
+    const brand = f.ftypBytes ? cc(f.ftypBytes, 8).trim() : '';
+    let patched = null;
+    if (f.tail === 'void' || mvUnknown) patched = 'passthrough';
+    else if (video && video.declaredFps > 240 && video.fps < 240) patched = 'density';
+    return {
+      size: f.blob.size,
+      brand,
+      container: brand === 'qt' ? 'MOV' : 'MP4',
+      moovFirst,
+      duration,
+      bitrate: duration > 0 ? (f.blob.size * 8) / duration : 0,
+      video,
+      audio,
+      tracks: f.traks.map((t) => t.handler),
+      extraTracks: f.traks.filter((t) => t !== sel.video && t !== sel.audio).length,
+      fragmented: f.fragmented,
+      patched,
+    };
+  }
+
+  // ---------- output tree ----------
+  // Nodes: {raw: Uint8Array} | {type, parts: [Uint8Array|node]} | {type:'stco'|'co64', offs: Float64Array, extra?: number}
+  const bx = (type, ...parts) => ({ type, parts });
+  const fbx = (type, version, flags, ...parts) => ({ type, parts: [Uint8Array.of(version, (flags >>> 16) & 255, (flags >>> 8) & 255, flags & 255), ...parts] });
+
+  function nodeSize(n) {
+    if (n._s !== undefined) return n._s;
+    let s;
+    if (n.raw) s = n.raw.length;
+    else if (n.offs) s = 16 + (n.offs.length + (n.extra || 0)) * (n.type === 'co64' ? 8 : 4);
+    else { s = 8; for (const part of n.parts) s += part instanceof Uint8Array ? part.length : nodeSize(part); }
+    if (s > 0xffffffff) throw new KFError('box_too_big', 'A header box grew past 4 GB.');
+    n._s = s;
+    return s;
+  }
+  function nodeWrite(n, out, pos, fix) {
+    if (n.raw) { out.set(n.raw, pos); return pos + n.raw.length; }
+    const s = nodeSize(n);
+    put32(out, pos, s);
+    out.set(ascii(n.type), pos + 4);
+    if (n.offs) {
+      put32(out, pos + 12, n.offs.length + (n.extra || 0));
+      fix.push({ pos: pos + 16, is64: n.type === 'co64', offs: n.offs, extra: n.extra || 0 });
+      return pos + s;
+    }
+    let p = pos + 8;
+    for (const part of n.parts) {
+      if (part instanceof Uint8Array) { out.set(part, p); p += part.length; } else p = nodeWrite(part, out, p, fix);
+    }
+    return p;
+  }
+  function serialize(rootNode) {
+    const out = new Uint8Array(nodeSize(rootNode));
+    const fix = [];
+    nodeWrite(rootNode, out, 0, fix);
+    return { bytes: out, fix };
+  }
+  function promote64(n) {
+    if (!n || n.raw) return;
+    delete n._s;
+    if (n.offs) { if (n.type === 'stco') n.type = 'co64'; return; }
+    for (const part of n.parts) if (!(part instanceof Uint8Array)) promote64(part);
+  }
+
+  function ftypBox(major, minor, brands) {
+    return bx('ftyp', ascii(major), be32(minor), ...brands.map(ascii));
+  }
+
+  // Assemble: ftyp + new moov + every original mdat (payload as file slices) + optional dummy mdat + optional tail.
+  function assemble(f, moovNode, o) {
+    if (!f.mdats.length) throw new KFError('no_mdat', 'This file has no media data. Export the video again.');
+    const ftyp = o.ftyp instanceof Uint8Array ? o.ftyp : serialize(o.ftyp).bytes;
+    const mdatBytes = f.mdats.reduce((s, m) => s + (m.end - m.start - m.hdr) + 16, 0);
+    let ser = serialize(moovNode);
+    const estimate = ftyp.length + ser.bytes.length + mdatBytes + (o.dummy || 0) + 8 + (o.tail ? o.tail.length : 0);
+    if (estimate > 0xfffffff0 || f.force64) { promote64(moovNode); ser = serialize(moovNode); }
+    const moovBytes = ser.bytes;
+    const parts = [ftyp, moovBytes];
+    let pos = ftyp.length + moovBytes.length;
+    const map = [];
+    for (const m of f.mdats) {
+      const from = m.start + m.hdr;
+      const len = m.end - from;
+      const big = len + 8 > 0xffffffff;
+      const hdr = new Uint8Array(big ? 16 : 8);
+      if (big) { put32(hdr, 0, 1); hdr.set(ascii('mdat'), 4); put64(hdr, 8, len + 16); } else { put32(hdr, 0, len + 8); hdr.set(ascii('mdat'), 4); }
+      parts.push(hdr, f.blob.slice(from, m.end));
+      map.push({ from, to: m.end, at: pos + hdr.length });
+      pos += hdr.length + len;
+    }
+    let dummyAt = 0;
+    if (o.dummy) {
+      const hdr = new Uint8Array(8);
+      put32(hdr, 0, 8 + o.dummy); hdr.set(ascii('mdat'), 4);
+      parts.push(hdr, new Uint8Array(o.dummy));
+      dummyAt = pos + 8;
+      pos += 8 + o.dummy;
+    }
+    if (o.tail) { parts.push(o.tail); pos += o.tail.length; }
+    const remap = (off) => {
+      for (const r of map) if (off >= r.from && off <= r.to) return r.at + (off - r.from);
+      throw new KFError('bad_offset', 'Part of this video points outside its media data. The file may be damaged; export it again.');
+    };
+    for (const fx of ser.fix) {
+      const w = fx.is64 ? 8 : 4;
+      let q = fx.pos;
+      const put = (v) => {
+        if (fx.is64) put64(moovBytes, q, v);
+        else { if (v > 0xffffffff) throw new KFError('too_big', 'This file is over 4 GB. Export a smaller file.'); put32(moovBytes, q, v); }
+        q += w;
+      };
+      for (let i = 0; i < fx.offs.length; i++) put(remap(fx.offs[i]));
+      for (let i = 0; i < fx.extra; i++) put(dummyAt);
+    }
+    return { parts, size: pos };
+  }
+
+  // ---------- shared box builders ----------
+  function stblRemap(b, stbl) {
+    return bx('stbl', ...stbl.kids.map((k) => (k.type === 'stco' || k.type === 'co64' ? { type: k.type, offs: chunksRead(b, k) } : raw(b, k))));
+  }
+  function minfWith(b, minf, stblNode, dropNmhd) {
+    return bx('minf', ...minf.kids.filter((k) => !(dropNmhd && k.type === 'nmhd')).map((k) => (k.type === 'stbl' ? stblNode : raw(b, k))));
+  }
+  function trakRemap(b, t) {
+    // Rebuild only the path down to the chunk-offset table.
+    return bx('trak', ...t.trak.kids.map((k) => {
+      if (k.type !== 'mdia') return raw(b, k);
+      return bx('mdia', ...k.kids.map((m) => (m.type === 'minf' ? minfWith(b, m, stblRemap(b, kid(m, 'stbl') || { kids: [] }), false) : raw(b, m))));
+    }));
+  }
+  function hdlrBox(kind, name) {
+    return fbx('hdlr', 0, 0, zeros(4), ascii(kind), zeros(12), te.encode(name), zeros(1));
+  }
+  function zeroTimes(b, n) {
+    // creation and modification time -> 0 (tkhd, mdhd)
+    const c = b.slice(n.start, n.end);
+    const p = n.hdr;
+    c.fill(0, p + 4, p + (c[p] === 1 ? 20 : 12));
+    return c;
+  }
+  function ffmpegFtyp(fourcc) {
+    const avc = /^(avc[1-4]|dva1|dvav)$/.test(fourcc);
+    return ftypBox('isom', 512, avc ? ['isom', 'iso2', 'avc1', 'mp41'] : ['isom', 'iso2', 'mp41']);
+  }
+
+  // ---------- method 1: Passthrough (Editing News patcher, open-source port by buwryme) ----------
+  function mvhdV1(timescale) {
+    const p = new Uint8Array(112);
+    p[0] = 1; // version 1, flags 0, creation/modification 0
+    put32(p, 20, timescale);
+    p.fill(255, 24, 32); // duration: all ones = unknown
+    put32(p, 32, 0x00010000); // rate 1.0
+    p[36] = 1; // volume 1.0
+    put32(p, 48, 0x00010000); put32(p, 64, 0x00010000); put32(p, 80, 0x40000000); // identity matrix
+    put32(p, 108, 5); // next track ID
+    return bx('mvhd', p);
+  }
+  function edtsPlusOne(b, edts) {
+    return bx('edts', ...edts.kids.map((k) => {
+      if (k.type !== 'elst') return raw(b, k);
+      const c = b.slice(k.start, k.end);
+      const p = k.hdr;
+      if (u32(c, p + 4) > 0) {
+        const o = c[p] === 1 ? p + 12 : p + 8; // low 32 bits of the first segment duration
+        put32(c, o, u32(c, o) + 1);
+      }
+      return { raw: c };
+    }));
+  }
+  function stblInflateClone(b, stbl, rate, dummy) {
+    const g = (n) => stbl.kids.find((k) => k.type === n);
+    const sz = g('stsz') || g('stz2'), stts = g('stts'), stsc = g('stsc'), co = g('stco') || g('co64');
+    if (!sz || !stts || !stsc || !co) return { node: stblRemap(b, stbl), extra: 0 };
+    const sizes = sizesRead(b, sz);
+    const real = sizes.count;
+    const extra = real * (rate - 1);
+    if ((real + extra) > 12e6) throw new KFError('audio_pcm', 'This clip uses uncompressed audio, which is too large to patch here. Export with AAC audio.');
+    let entries = stscRead(b, stsc);
+    const lastSdi = entries.length ? entries[entries.length - 1][2] : 1;
+    let offs = chunksRead(b, co);
+    if (!offs.length || !real) return { node: stblRemap(b, stbl), extra: 0 };
+    let fallback = false;
+    if (!entries.length || stscTotal(entries, offs.length) !== real) { entries = [[1, real, lastSdi]]; offs = offs.slice(0, 1); fallback = true; }
+    const first = offs[0];
+    const szPay = new Uint8Array(12 + (real + extra) * 4); // version/flags, sample_size=0, count, sizes
+    put32(szPay, 8, real + extra);
+    for (let i = 0; i < real; i++) put32(szPay, 12 + i * 4, sizes.at(i));
+    for (let i = 0; i < extra; i++) put32(szPay, 12 + (real + i) * 4, dummy);
+    const st = sttsRead(b, stts);
+    const sttsPay = new Uint8Array(8 + st.bytes.length + 8);
+    put32(sttsPay, 4, st.entries + 1);
+    sttsPay.set(st.bytes, 8);
+    put32(sttsPay, 8 + st.bytes.length, extra);
+    put32(sttsPay, 12 + st.bytes.length, 1);
+    const stscPay = new Uint8Array(8 + (entries.length + 1) * 12);
+    put32(stscPay, 4, entries.length + 1);
+    entries.forEach((e, i) => { put32(stscPay, 8 + i * 12, e[0]); put32(stscPay, 12 + i * 12, e[1]); put32(stscPay, 16 + i * 12, e[2]); });
+    const tailE = 8 + entries.length * 12;
+    put32(stscPay, tailE, offs.length + 1); put32(stscPay, tailE + 4, extra); put32(stscPay, tailE + 8, lastSdi);
+    const newOffs = new Float64Array(offs.length + 1);
+    newOffs.set(offs); newOffs[offs.length] = first;
+    const node = bx('stbl', ...stbl.kids.map((k) => {
+      if (k === sz) return bx('stsz', szPay);
+      if (k === stts) return bx('stts', sttsPay);
+      if (k === stsc) return bx('stsc', stscPay);
+      if (k === co) return { type: co.type, offs: newOffs };
+      if (k.type === 'stco' || k.type === 'co64') return { type: k.type, offs: chunksRead(b, k) };
+      return raw(b, k);
+    }));
+    return { node, extra, fallback };
+  }
+  function trakPassthrough(b, t, o) {
+    const kids = [];
+    let extra = 0, fallback = false;
+    for (const k of t.trak.kids) {
+      if (k.type === 'tkhd') {
+        const c = zeroTimes(b, k);
+        put32(c, k.hdr + (c[k.hdr] === 1 ? 20 : 12), o.id);
+        kids.push({ raw: c });
+      } else if (k.type === 'tref') {
+        continue;
+      } else if (k.type === 'edts') {
+        if (o.clone) continue;
+        kids.push(o.elstPlusOne ? edtsPlusOne(b, k) : raw(b, k));
+      } else if (k.type === 'mdia') {
+        kids.push(bx('mdia', ...k.kids.map((m) => {
+          if (m.type === 'mdhd') return { raw: zeroTimes(b, m) };
+          if (m.type === 'hdlr') return hdlrBox(o.kind, o.kind === 'vide' ? 'VideoHandler' : 'SoundHandler');
+          if (m.type !== 'minf') return raw(b, m);
+          const stbl = kid(m, 'stbl');
+          let stblNode;
+          if (o.inflate) { const r = stblInflateClone(b, stbl, o.inflate.rate, o.inflate.dummy); stblNode = r.node; extra = r.extra; fallback = !!r.fallback; } else stblNode = stblRemap(b, stbl);
+          return minfWith(b, m, stblNode, true);
+        })));
+      } else {
+        kids.push(raw(b, k));
+      }
+    }
+    return { node: bx('trak', ...kids), extra, fallback };
+  }
+  function ilstEntry(tag, value) {
+    return bx(tag, bx('data', be32(1, 0), te.encode(value)));
+  }
+  function udtaPassthrough() {
+    const hdlr1 = fbx('hdlr', 0, 0, zeros(4), ascii('mdir'), zeros(12), ascii('appl'), zeros(13));
+    const meta1 = fbx('meta', 0, 375, zeros(4), hdlr1, bx('ilst', ilstEntry('©too', 'Lavf59.27.100'), ilstEntry('©cmt', 'Keepframe')));
+    const hdlr2 = fbx('hdlr', 0, 0, zeros(4), ascii('mdir'), zeros(12), zeros(12), zeros(1));
+    const meta2 = fbx('meta', 0, 0, zeros(4), hdlr2, bx('name', ascii('keepframe')), bx('ilst', ilstEntry('©cmt', 'Keepframe')));
+    return bx('udta', meta1, meta2);
+  }
+  function voidTail(n) {
+    const t = new Uint8Array(n);
+    put32(t, 0, 4); t.set(ascii('VOID'), 4);
+    for (let i = 8; i + 4 <= n; i += 4) put32(t, i, 4);
+    return t;
+  }
+  const TAIL_BYTES = 184100;
+  const INFLATE_RATE = 10;
+
+  function buildPassthrough(f, sel) {
+    const b = f.mb;
+    const { video, audio } = sel;
+    if (!audio) throw new KFError('no_audio', 'Passthrough needs an audio track and this clip has none. Add any sound in your editor, or pick Density.');
+    const dummy = DUMMY[video.entry.fourcc] || 8;
+    const p = P(f.mvhd);
+    const ts = b[p] === 1 ? u32(b, p + 20) : u32(b, p + 12);
+    const kids = [mvhdV1(ts)];
+    for (const k of f.root.kids) if (k.type === 'iods') kids.push(raw(b, k));
+    const v = trakPassthrough(b, video, { id: 1, kind: 'vide', elstPlusOne: true });
+    const a = trakPassthrough(b, audio, { id: 2, kind: 'soun' });
+    const c = trakPassthrough(b, audio, { id: 4, kind: 'soun', clone: true, inflate: { rate: INFLATE_RATE, dummy } });
+    kids.push(v.node, a.node, c.node, udtaPassthrough());
+    const out = assemble(f, bx('moov', ...kids), { ftyp: ffmpegFtyp(video.entry.fourcc), tail: voidTail(TAIL_BYTES) });
+    const dropped = f.traks.length - 2;
+    out.changes = [
+      ['mvhd', 'version 1, duration set to unknown'],
+      ['trak', `audio track cloned, clone has ${c.extra.toLocaleString('en-US')} extra ${dummy}-byte samples (${INFLATE_RATE}×)`],
+      ['tkhd mdhd', 'dates cleared, track IDs 1 · 2 · 4'],
+      ['elst', 'video edit +1 tick'],
+      ['hdlr', 'names set to VideoHandler / SoundHandler'],
+      ['udta', 'metadata replaced (location and device tags removed)'],
+      ['tail', `${Math.round(TAIL_BYTES / 1024)} KB trailing pad added`],
+    ];
+    if (dropped > 0) out.changes.push(['trak', `${dropped} extra track${dropped > 1 ? 's' : ''} removed`]);
+    out.expect = { traks: 3, clone: c.fallback ? -1 : 2 };
+    return out;
+  }
+
+  // ---------- method 2: Density (NoBlur frame-density inflation) ----------
+  function stblInflateVideo(b, stbl, mult, dummy) {
+    const g = (n) => stbl.kids.find((k) => k.type === n);
+    const sz = g('stsz') || g('stz2'), stts = g('stts'), stsc = g('stsc'), co = g('stco') || g('co64');
+    const sizes = sizesRead(b, sz);
+    const real = sizes.count;
+    const fake = real * (mult - 1);
+    if (real + fake > 12e6) throw new KFError('too_many', 'This clip has too many frames for Density. Try Passthrough.');
+    const st = sttsRead(b, stts);
+    const avg = Math.max(1, Math.round(st.dur / Math.max(1, st.samples)));
+    const szPay = new Uint8Array(12 + (real + fake) * 4);
+    put32(szPay, 8, real + fake);
+    for (let i = 0; i < real; i++) put32(szPay, 12 + i * 4, sizes.at(i));
+    for (let i = 0; i < fake; i++) put32(szPay, 12 + (real + i) * 4, dummy);
+    const sttsPay = new Uint8Array(8 + st.bytes.length + 8);
+    put32(sttsPay, 4, st.entries + 1);
+    sttsPay.set(st.bytes, 8);
+    put32(sttsPay, 8 + st.bytes.length, fake);
+    put32(sttsPay, 12 + st.bytes.length, avg);
+    const entries = stscRead(b, stsc);
+    const offs = chunksRead(b, co);
+    const stscPay = new Uint8Array(8 + (entries.length + 1) * 12);
+    put32(stscPay, 4, entries.length + 1);
+    entries.forEach((e, i) => { put32(stscPay, 8 + i * 12, e[0]); put32(stscPay, 12 + i * 12, e[1]); put32(stscPay, 16 + i * 12, e[2]); });
+    const tailE = 8 + entries.length * 12;
+    put32(stscPay, tailE, offs.length + 1); put32(stscPay, tailE + 4, 1); put32(stscPay, tailE + 8, 1);
+    return {
+      node: bx('stbl', ...stbl.kids.map((k) => {
+        if (k === sz) return bx('stsz', szPay);
+        if (k === stts) return bx('stts', sttsPay);
+        if (k === stsc) return bx('stsc', stscPay);
+        if (k === co) return { type: co.type, offs, extra: fake };
+        if (k.type === 'stco' || k.type === 'co64') return { type: k.type, offs: chunksRead(b, k) };
+        return raw(b, k);
+      })),
+      fake,
+    };
+  }
+  const DENSITY = 10;
+  function buildDensity(f, sel) {
+    const b = f.mb;
+    const { video } = sel;
+    const dummy = DUMMY[video.entry.fourcc] || 8;
+    let fake = 0;
+    const kids = f.root.kids.map((k) => {
+      if (k.type !== 'trak') return raw(b, k);
+      const t = f.traks.find((x) => x.trak === k);
+      if (t !== video) return trakRemap(b, t);
+      return bx('trak', ...k.kids.map((c) => {
+        if (c.type !== 'mdia') return raw(b, c);
+        return bx('mdia', ...c.kids.map((m) => {
+          if (m.type !== 'minf') return raw(b, m);
+          const r = stblInflateVideo(b, kid(m, 'stbl'), DENSITY, dummy);
+          fake = r.fake;
+          return minfWith(b, m, r.node, false);
+        }));
+      }));
+    });
+    // NoBlur normalization: isom brand, header before media
+    let ftyp = f.ftypBytes;
+    const major = ftyp ? cc(ftyp, 8) : '';
+    if (major !== 'isom') {
+      const hevc = /^(hvc1|hev1|dvh1|dvhe)$/.test(video.entry.fourcc);
+      ftyp = serialize(hevc ? ftypBox('iso4', 512, ['isom', 'iso2', 'hvc1', 'mp41']) : ftypBox('isom', 512, ['isom', 'iso2', 'mp41'])).bytes;
+    }
+    const out = assemble(f, bx('moov', ...kids), { ftyp, dummy: fake * dummy });
+    out.changes = [
+      ['stsz', `${fake.toLocaleString('en-US')} extra ${dummy}-byte video samples (${DENSITY}× density)`],
+      ['stts stsc', 'timing and chunk tables extended to match'],
+      ['stco', 'extra samples point at a small padding block'],
+      ['moov', 'header placed before the media'],
+    ];
+    if (major !== 'isom') out.changes.push(['ftyp', 'brand set to isom']);
+    out.expect = { traks: f.traks.length, densityFrames: video.samples * DENSITY };
+    return out;
+  }
+
+  // ---------- method 3: FPS (120fps-method timing patch) ----------
+  function fpsDivider(fps) {
+    if (fps >= 55 && fps <= 65) return 2;
+    if (fps >= 110 && fps <= 130) return 4;
+    return 0;
+  }
+  function buildFps(f, sel) {
+    const b = f.mb;
+    const fps = videoDetails(b, sel.video).fps;
+    const d = fpsDivider(fps);
+    if (!d) throw new KFError('fps', `The FPS method needs a 60 or 120 fps clip. This one is ${fps.toFixed(2)} fps.`);
+    const c = b.slice();
+    const div = (n) => {
+      const p = P(n);
+      if (c[p] === 1) {
+        put32(c, p + 20, Math.max(1, Math.floor(u32(c, p + 20) / d)));
+        if (!allFF(c, p + 24, 8)) put64(c, p + 24, Math.floor(u64(c, p + 24) / d));
+      } else {
+        put32(c, p + 12, Math.max(1, Math.floor(u32(c, p + 12) / d)));
+        if (!allFF(c, p + 16, 4)) put32(c, p + 16, Math.floor(u32(c, p + 16) / d));
+      }
+    };
+    div(f.mvhd);
+    let n = 0;
+    for (const t of f.traks) if (t.mdhd) { div(t.mdhd); n++; }
+    const parts = [f.blob.slice(0, f.moov.start), c, f.blob.slice(f.moov.end)];
+    return {
+      parts,
+      size: f.blob.size,
+      changes: [
+        ['mvhd', `time scale and duration ÷ ${d}`],
+        ['mdhd', `${n} track header${n > 1 ? 's' : ''} ÷ ${d} (${Math.round(fps)} fps reads as ${Math.round(fps / d)})`],
+      ],
+      expect: { traks: f.traks.length, divider: d },
+      divider: d,
+    };
+  }
+
+  const METHODS = {
+    passthrough: { build: buildPassthrough, suffix: 'passthrough' },
+    density: { build: buildDensity, suffix: 'density' },
+    fps: { build: buildFps, suffix: 'fps' },
+  };
+
+  // ---------- integrity check ----------
+  async function verify(src, outBlob, built) {
+    const o = await load(outBlob);
+    const osel = pickTracks(o);
+    if (!osel.video) throw new KFError('verify', 'Check failed: the patched file has no readable video track.');
+    if (built.expect.traks !== o.traks.length) throw new KFError('verify', 'Check failed: unexpected track count in the patched file.');
+    const pairs = [[src.sel.video, osel.video]];
+    if (src.sel.audio && osel.audio) pairs.push([src.sel.audio, osel.audio]);
+    if (built.expect.clone >= 0 && src.sel.audio) pairs.push([src.sel.audio, o.traks[built.expect.clone]]);
+    let checked = 0;
+    for (const [st, ot] of pairs) {
+      const sl = makeLocator(src.f.mb, st);
+      const ol = makeLocator(o.mb, ot);
+      const n = st.samples;
+      const idx = [...new Set([0, 1, n >> 2, n >> 1, (3 * n) >> 2, n - 2, n - 1])].filter((i) => i >= 0 && i < n);
+      for (const i of idx) {
+        const a = sl(i), c = ol(i);
+        if (!a || !c || a.size !== c.size) throw new KFError('verify', 'Check failed: sample tables do not line up. Nothing was saved.');
+        const len = Math.min(a.size, 256);
+        const [x, y] = await Promise.all([readBytes(src.f.blob, a.off, a.off + len), readBytes(outBlob, c.off, c.off + len)]);
+        for (let k = 0; k < len; k++) if (x[k] !== y[k]) throw new KFError('verify', 'Check failed: media bytes differ after patching. Nothing was saved.');
+        checked++;
+      }
+    }
+    if (built.expect.densityFrames && osel.video.samples !== built.expect.densityFrames) throw new KFError('verify', 'Check failed: density tables are the wrong size.');
+    return { checked };
+  }
+
+  // ---------- sample tables and timing (used by the re-encoder) ----------
+  function sampleTable(b, t) {
+    const sizes = sizesRead(b, t.b.stsz || t.b.stz2);
+    const n = sizes.count;
+    const stsc = stscRead(b, t.b.stsc);
+    const chunks = chunksRead(b, t.b.stco || t.b.co64);
+    const offs = new Float64Array(n), sz = new Uint32Array(n);
+    let s = 0;
+    for (let r = 0; r < stsc.length && s < n; r++) {
+      const first = stsc[r][0], spc = stsc[r][1];
+      const next = r + 1 < stsc.length ? stsc[r + 1][0] : chunks.length + 1;
+      for (let c = first; c < next && s < n; c++) {
+        if (c - 1 >= chunks.length) break;
+        let off = chunks[c - 1];
+        for (let k = 0; k < spc && s < n; k++) { const z = sizes.at(s); offs[s] = off; sz[s] = z; off += z; s++; }
+      }
+    }
+    if (s < n) throw new KFError('tables', 'The sample tables in this file are incomplete.');
+    return { n, offs, sizes: sz };
+  }
+
+  function timing(b, t) {
+    const n = t.samples;
+    const dts = new Float64Array(n + 1);
+    const st = sttsRead(b, t.b.stts);
+    let i = 0, acc = 0, last = 0;
+    for (let e = 0; e < st.entries && i < n; e++) {
+      const c = u32(st.bytes, e * 8), d = u32(st.bytes, e * 8 + 4);
+      for (let k = 0; k < c && i < n; k++) { dts[i++] = acc; acc += d; }
+      last = d;
+    }
+    while (i < n) { dts[i++] = acc; acc += last; }
+    dts[n] = acc;
+    const cts = new Float64Array(n);
+    if (t.b.ctts) {
+      const p = P(t.b.ctts);
+      const cnt = Math.min(u32(b, p + 4), Math.floor((t.b.ctts.end - p - 8) / 8));
+      let j = 0;
+      for (let e = 0; e < cnt && j < n; e++) {
+        const c = u32(b, p + 8 + e * 8), o = i32(b, p + 12 + e * 8);
+        for (let k = 0; k < c && j < n; k++) cts[j++] = o;
+      }
+    }
+    let mediaTime = 0;
+    const elst = kid(kid(t.trak, 'edts'), 'elst');
+    if (elst) {
+      const p = P(elst);
+      const v = b[p];
+      const cnt = u32(b, p + 4);
+      for (let e = 0; e < cnt; e++) {
+        const o = p + 8 + e * (v === 1 ? 20 : 12);
+        if (o + (v === 1 ? 20 : 12) > elst.end) break;
+        const mt = v === 1 ? (u32(b, o + 8) === 0xffffffff ? -1 : u64(b, o + 8)) : i32(b, o + 4);
+        if (mt !== -1) { mediaTime = mt; break; }
+      }
+    }
+    return { dts, cts, mediaTime };
+  }
+
+  // ---------- codec strings for WebCodecs ----------
+  const hex2 = (v) => (v < 16 ? '0' : '') + v.toString(16);
+  const pad2 = (v) => (v < 10 ? '0' : '') + v;
+  function decoderConfig(b, t) {
+    const e = t.entry;
+    const kids = parseKids(b, e.start + 86, Math.min(e.start + e.size, t.b.stsd.end));
+    const box = (type) => kids.find((k) => k.type === type);
+    const fc = e.fourcc;
+    const cfg = { codedWidth: u16(b, e.start + 32), codedHeight: u16(b, e.start + 34) };
+    if (/^(avc1|avc3|dva1|dvav)$/.test(fc)) {
+      const c = box('avcC');
+      if (!c) throw new KFError('codec', 'This H.264 video has no decoder setup (avcC), so it cannot be re-encoded.');
+      const p = c.start + c.hdr;
+      cfg.codec = 'avc1.' + hex2(b[p + 1]) + hex2(b[p + 2]) + hex2(b[p + 3]);
+      cfg.description = b.slice(p, c.end);
+    } else if (/^(hvc1|hev1|dvh1|dvhe)$/.test(fc)) {
+      const c = box('hvcC');
+      if (!c) throw new KFError('codec', 'This HEVC video has no decoder setup (hvcC), so it cannot be re-encoded.');
+      const p = c.start + c.hdr;
+      const space = b[p + 1] >> 6, tier = (b[p + 1] >> 5) & 1, prof = b[p + 1] & 31;
+      let compat = u32(b, p + 2), rev = 0;
+      for (let k = 0; k < 32; k++) { rev = (rev << 1) | (compat & 1); compat >>>= 1; }
+      const cons = Array.from(b.subarray(p + 6, p + 12));
+      while (cons.length && cons[cons.length - 1] === 0) cons.pop();
+      cfg.codec = (fc === 'hev1' || fc === 'dvhe' ? 'hev1.' : 'hvc1.') + ['', 'A', 'B', 'C'][space] + prof + '.' + (rev >>> 0).toString(16) + '.' + (tier ? 'H' : 'L') + b[p + 12] + cons.map((x) => '.' + x.toString(16)).join('');
+      cfg.description = b.slice(p, c.end);
+    } else if (fc === 'vp09') {
+      const c = box('vpcC');
+      if (!c) { cfg.codec = 'vp09.00.10.08'; return cfg; }
+      const p = P(c) + 4;
+      cfg.codec = 'vp09.' + pad2(b[p]) + '.' + pad2(b[p + 1]) + '.' + pad2(b[p + 2] >> 4) + '.' + pad2((b[p + 2] >> 1) & 7) + '.' + pad2(b[p + 3]) + '.' + pad2(b[p + 4]) + '.' + pad2(b[p + 5]) + '.' + pad2(b[p + 2] & 1);
+    } else if (fc === 'av01') {
+      const c = box('av1C');
+      if (!c) throw new KFError('codec', 'This AV1 video has no decoder setup (av1C), so it cannot be re-encoded.');
+      const p = c.start + c.hdr;
+      const prof = b[p + 1] >> 5, lvl = b[p + 1] & 31, tier = b[p + 2] >> 7, hbd = (b[p + 2] >> 6) & 1, twelve = (b[p + 2] >> 5) & 1;
+      cfg.codec = 'av01.' + prof + '.' + pad2(lvl) + (tier ? 'H' : 'M') + '.' + pad2(hbd ? (twelve ? 12 : 10) : 8);
+      cfg.description = b.slice(p, c.end);
+    } else {
+      throw new KFError('codec', `Re-encoding ${VIDEO_CODECS[fc] || fc} video isn't supported. Export H.264 or HEVC.`);
+    }
+    return cfg;
+  }
+
+  // ---------- writing a fresh MP4 (encoded video + the original audio, copied) ----------
+  const IDENTITY = (() => { const m = new Uint8Array(36); put32(m, 0, 0x00010000); put32(m, 16, 0x00010000); put32(m, 32, 0x40000000); return m; })();
+  function visualEntry(fourcc, w, h, children) {
+    const p = new Uint8Array(78);
+    p[7] = 1; // data_reference_index
+    p[24] = w >> 8; p[25] = w & 255; p[26] = h >> 8; p[27] = h & 255;
+    put32(p, 28, 0x00480000); put32(p, 32, 0x00480000); // 72 dpi
+    p[41] = 1; // frame_count
+    p[75] = 0x18; // depth
+    p[76] = 255; p[77] = 255; // pre_defined -1
+    return bx(fourcc, p, ...children);
+  }
+  function vpcCFromCodec(codec) {
+    const s = codec.split('.').map((x) => parseInt(x, 10));
+    const prof = s[1] || 0, lvl = s[2] || 10, depth = s[3] || 8, chroma = s.length > 4 ? s[4] : 1;
+    const cp = s.length > 5 ? s[5] : 1, tc = s.length > 6 ? s[6] : 1, mc = s.length > 7 ? s[7] : 1, full = s.length > 8 ? s[8] : 0;
+    return fbx('vpcC', 1, 0, Uint8Array.of(prof, lvl, (depth << 4) | (chroma << 1) | full, cp, tc, mc, 0, 0));
+  }
+  function runLength(arr, n) {
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      if (out.length && out[out.length - 1][1] === arr[i]) out[out.length - 1][0]++;
+      else out.push([1, arr[i]]);
+    }
+    return out;
+  }
+  function pairsBox(type, pairs, version) {
+    const p = new Uint8Array(8 + pairs.length * 8);
+    p[0] = version || 0;
+    put32(p, 4, pairs.length);
+    pairs.forEach((x, i) => { put32(p, 8 + i * 8, x[0]); put32(p, 12 + i * 8, x[1] >>> 0); });
+    return bx(type, p);
+  }
+  function stscFromCounts(counts) {
+    const entries = [];
+    counts.forEach((c, i) => { if (!entries.length || entries[entries.length - 1][1] !== c) entries.push([i + 1, c, 1]); });
+    const p = new Uint8Array(8 + entries.length * 12);
+    put32(p, 4, entries.length);
+    entries.forEach((e, i) => { put32(p, 8 + i * 12, e[0]); put32(p, 12 + i * 12, e[1]); put32(p, 16 + i * 12, e[2]); });
+    return bx('stsc', p);
+  }
+  function u32List(type, values, n, lead) {
+    const p = new Uint8Array(8 + (lead ? 4 : 0) + n * 4);
+    let o = 4;
+    if (lead) { put32(p, 4, 0); o = 8; } // stsz: sample_size 0
+    put32(p, o, n);
+    for (let i = 0; i < n; i++) put32(p, o + 4 + i * 4, values[i]);
+    return bx(type, p);
+  }
+
+  // v: { fourcc, codec, description, width, height, matrix, timescale, pts[], dts[], dur[], key[], size[], part(i) }
+  // audio: { f, t } or null. movieTs: the source movie time scale (copied audio durations are in it).
+  function muxEncoded(v, audio, movieTs) {
+    const n = v.size.length;
+    if (!n) throw new KFError('encode', 'The encoder produced no frames.');
+    const TS = v.timescale;
+    // decode times from sorted presentation times (handles encoders that reorder frames)
+    const order = Array.from(v.pts).sort((x, y) => x - y);
+    let shift = 0;
+    for (let i = 0; i < n; i++) shift = Math.max(shift, order[i] - v.pts[i]);
+    const dts = new Float64Array(n), ct = new Int32Array(n);
+    let anyCt = false;
+    for (let i = 0; i < n; i++) { dts[i] = order[i] - shift; }
+    const base = dts[0];
+    for (let i = 0; i < n; i++) { dts[i] -= base; ct[i] = Math.round(v.pts[i] - base - dts[i]); if (ct[i]) anyCt = true; }
+    const deltas = new Uint32Array(n);
+    for (let i = 0; i < n - 1; i++) deltas[i] = Math.max(1, Math.round(dts[i + 1] - dts[i]));
+    deltas[n - 1] = Math.max(1, Math.round(v.dur[n - 1] || (n > 1 ? deltas[n - 2] : TS / 30)));
+    let mediaDur = 0;
+    for (let i = 0; i < n; i++) mediaDur += deltas[i];
+    const mediaTime = anyCt ? Math.round(order[0] - base) : 0;
+    const vMovieDur = Math.round((mediaDur / TS) * movieTs);
+
+    // audio source tables
+    let A = null;
+    if (audio) {
+      const b = audio.f.mb, t = audio.t;
+      const tbl = sampleTable(b, t);
+      const tm = timing(b, t);
+      A = { b, t, tbl, time: (i) => tm.dts[i] / t.timescale, blob: audio.f.blob };
+    }
+    // interleave: each video frame is its own chunk; audio due before it goes in one chunk ahead of it
+    const vRel = new Float64Array(n);
+    const aRel = [], aCounts = [];
+    const parts = [];
+    let pos = 0, ai = 0;
+    let run = null; // merge contiguous source audio bytes into one slice
+    const flushRun = () => { if (run) { parts.push(A.blob.slice(run[0], run[1])); run = null; } };
+    const emitAudio = (from, to) => {
+      aRel.push(pos); aCounts.push(to - from);
+      for (let s = from; s < to; s++) {
+        const off = A.tbl.offs[s], z = A.tbl.sizes[s];
+        if (run && run[1] === off) run[1] += z; else { flushRun(); run = [off, off + z]; }
+        pos += z;
+      }
+      flushRun();
+    };
+    for (let i = 0; i < n; i++) {
+      if (A) {
+        const tv = dts[i] / TS;
+        const from = ai;
+        while (ai < A.tbl.n && A.time(ai) <= tv) ai++;
+        if (ai > from) emitAudio(from, ai);
+      }
+      vRel[i] = pos;
+      parts.push(v.part(i));
+      pos += v.size[i];
+    }
+    if (A && ai < A.tbl.n) emitAudio(ai, A.tbl.n);
+
+    // video track
+    const tk = new Uint8Array(84);
+    tk[3] = 3; put32(tk, 12, 1); put32(tk, 20, vMovieDur);
+    tk.set(v.matrix || IDENTITY, 40);
+    put32(tk, 76, v.width * 65536); put32(tk, 80, v.height * 65536);
+    const md = new Uint8Array(24);
+    put32(md, 12, TS); put32(md, 16, mediaDur); md[20] = 0x55; md[21] = 0xc4; // language 'und'
+    const entryKids = [];
+    if (v.fourcc === 'avc1') entryKids.push(bx('avcC', v.description));
+    else if (v.fourcc === 'vp09') entryKids.push(vpcCFromCodec(v.codec));
+    else if (v.description) entryKids.push(bx(v.fourcc === 'av01' ? 'av1C' : 'hvcC', v.description));
+    const keys = [];
+    for (let i = 0; i < n; i++) if (v.key[i]) keys.push(i + 1);
+    const stss = new Uint8Array(8 + keys.length * 4);
+    put32(stss, 4, keys.length); keys.forEach((k, i) => put32(stss, 8 + i * 4, k));
+    const vStbl = [
+      fbx('stsd', 0, 0, be32(1), visualEntry(v.fourcc, v.width, v.height, entryKids)),
+      pairsBox('stts', runLength(deltas, n)),
+    ];
+    if (anyCt) vStbl.push(pairsBox('ctts', runLength(ct, n), ct.some((x) => x < 0) ? 1 : 0));
+    if (keys.length < n) vStbl.push(bx('stss', stss));
+    vStbl.push(stscFromCounts(new Array(n).fill(1)), u32List('stsz', v.size, n, true), { type: 'stco', offs: vRel });
+    const videoTrak = bx('trak',
+      bx('tkhd', tk),
+      bx('edts', fbx('elst', 0, 0, be32(1, vMovieDur, mediaTime, 0x00010000))),
+      bx('mdia', bx('mdhd', md), hdlrBox('vide', 'VideoHandler'),
+        bx('minf', fbx('vmhd', 0, 1, zeros(8)), bx('dinf', fbx('dref', 0, 0, be32(1), fbx('url ', 0, 1))), bx('stbl', ...vStbl))));
+
+    // audio track: copied, only its chunk layout is new
+    let audioTrak = null, aMovieDur = 0;
+    if (A) {
+      const b = A.b;
+      audioTrak = bx('trak', ...A.t.trak.kids.filter((k) => k.type !== 'tref').map((k) => {
+        if (k.type === 'tkhd') {
+          const c = b.slice(k.start, k.end);
+          const p = k.hdr;
+          put32(c, p + (c[p] === 1 ? 20 : 12), 2);
+          aMovieDur = c[p] === 1 ? u64(c, p + 28) : u32(c, p + 20);
+          return { raw: c };
+        }
+        if (k.type !== 'mdia') return raw(b, k);
+        return bx('mdia', ...k.kids.map((m) => {
+          if (m.type !== 'minf') return raw(b, m);
+          return bx('minf', ...m.kids.map((x) => {
+            if (x.type !== 'stbl') return raw(b, x);
+            return bx('stbl', ...x.kids.map((s) => {
+              if (s.type === 'stsc') return stscFromCounts(aCounts);
+              if (s.type === 'stco' || s.type === 'co64') return { type: 'stco', offs: Float64Array.from(aRel) };
+              return raw(b, s);
+            }));
+          }));
+        }));
+      }));
+    }
+    const mv = new Uint8Array(100);
+    put32(mv, 12, movieTs); put32(mv, 16, Math.max(vMovieDur, aMovieDur));
+    put32(mv, 20, 0x00010000); mv[24] = 1; mv.set(IDENTITY, 36); put32(mv, 96, A ? 3 : 2);
+    const udta = bx('udta', fbx('meta', 0, 0, fbx('hdlr', 0, 0, zeros(4), ascii('mdirappl'), zeros(8), zeros(1)), bx('ilst', ilstEntry('©too', 'Lavf59.27.100'))));
+    const moov = bx('moov', bx('mvhd', mv), videoTrak, ...(audioTrak ? [audioTrak] : []), udta);
+    const ftyp = serialize(ftypBox('isom', 512, v.fourcc === 'avc1' ? ['isom', 'iso2', 'avc1', 'mp41'] : ['isom', 'iso2', 'mp41'])).bytes;
+    let ser = serialize(moov);
+    const big = pos + 8 > 0xffffffff;
+    if (ftyp.length + ser.bytes.length + pos + 16 > 0xfffffff0) { promote64(moov); ser = serialize(moov); }
+    const hdr = new Uint8Array(big ? 16 : 8);
+    if (big) { put32(hdr, 0, 1); hdr.set(ascii('mdat'), 4); put64(hdr, 8, pos + 16); } else { put32(hdr, 0, pos + 8); hdr.set(ascii('mdat'), 4); }
+    const dataStart = ftyp.length + ser.bytes.length + hdr.length;
+    for (const fx of ser.fix) {
+      let q = fx.pos;
+      for (let i = 0; i < fx.offs.length; i++) {
+        const val = dataStart + fx.offs[i];
+        if (fx.is64) { put64(ser.bytes, q, val); q += 8; } else { put32(ser.bytes, q, val); q += 4; }
+      }
+    }
+    return new Blob([ftyp, ser.bytes, hdr, ...parts], { type: 'video/mp4' });
+  }
+
+  // ---------- on-device re-encode with WebCodecs ----------
+  const KEYFRAME_TIMES = [0, 9.1, 18.2]; // same forced keyframes as the reference patcher's ffmpeg step
+  function canReencode() { return typeof VideoDecoder !== 'undefined' && typeof VideoEncoder !== 'undefined' && typeof EncodedVideoChunk !== 'undefined'; }
+  const even = (x) => Math.max(2, Math.round(x / 2) * 2);
+
+  async function pickEncoder(w, h, fps, bitrate, codecs) {
+    const large = Math.max(w, h) > 1920 || Math.min(w, h) > 1088;
+    const list = codecs || (large ? ['avc1.640033', 'avc1.4d4033', 'avc1.42e033'] : ['avc1.64002a', 'avc1.4d402a', 'avc1.42e02a']);
+    for (const codec of list) {
+      for (const hw of ['prefer-hardware', 'no-preference']) {
+        const cfg = { codec, width: w, height: h, bitrate, bitrateMode: 'variable', framerate: Math.max(1, Math.round(fps)), latencyMode: 'quality', hardwareAcceleration: hw };
+        if (codec.startsWith('avc1')) cfg.avc = { format: 'avc' };
+        try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) return cfg; } catch (e) { /* try next */ }
+      }
+    }
+    throw new KFError('no_encoder', `This browser can't encode H.264 at ${w}×${h}. Try the 1080p limit.`);
+  }
+
+  // opts: { bitrate (bits/s), maxShort (e.g. 1080 or 0), codecs (test hook), signal, onProgress(done, total) }
+  async function reencode(state, opts) {
+    if (!canReencode()) throw new KFError('no_webcodecs', "This browser can't re-encode video. Use Chrome on Android, or Safari on iPhone with iOS 16.4 or later.");
+    const o = opts || {};
+    const f = state.f, t = state.sel.video, b = f.mb;
+    const dcfg = decoderConfig(b, t);
+    let ok = false;
+    try { ok = (await VideoDecoder.isConfigSupported(dcfg)).supported; } catch (e) { ok = false; }
+    if (!ok) throw new KFError('no_decoder', `This phone's browser can't decode this ${VIDEO_CODECS[t.entry.fourcc] || t.entry.fourcc} video.`);
+    const tbl = sampleTable(b, t);
+    const tm = timing(b, t);
+    const n = tbl.n;
+    const ts = t.timescale;
+    // sync samples
+    const isKey = new Uint8Array(n);
+    if (t.b.stss) {
+      const p = P(t.b.stss);
+      const cnt = Math.min(u32(b, p + 4), Math.floor((t.b.stss.end - p - 8) / 4));
+      for (let i = 0; i < cnt; i++) { const s = u32(b, p + 8 + i * 4) - 1; if (s >= 0 && s < n) isKey[s] = 1; }
+    } else isKey.fill(1);
+    const fps = videoDetails(b, t).fps || 30;
+    // output size (coded orientation; rotation stays in the track matrix)
+    let w = dcfg.codedWidth, h = dcfg.codedHeight;
+    if (o.maxShort && Math.min(w, h) > o.maxShort) { const s = o.maxShort / Math.min(w, h); w = even(w * s); h = even(h * s); }
+    w = even(w); h = even(h);
+    const scale = w !== dcfg.codedWidth || h !== dcfg.codedHeight;
+    const ecfg = await pickEncoder(w, h, fps, Math.round(o.bitrate || 12e6), o.codecs);
+    const fourcc = ecfg.codec.slice(0, 4);
+    let matrix = null;
+    if (t.tkhd) { const p = P(t.tkhd); matrix = b.slice(p + (b[p] === 1 ? 52 : 40), p + (b[p] === 1 ? 88 : 76)); }
+
+    // encoded output, parked in Blobs as it arrives so phone memory stays low
+    const blobs = [], index = [];
+    let pending = [], pendingSize = 0;
+    const park = () => { if (pending.length) { blobs.push(new Blob(pending)); pending = []; pendingSize = 0; } };
+    const out = { pts: [], dur: [], key: [], size: [] };
+    let description = null, failure = null, encoded = 0, kfNext = 0, fed = 0;
+    const fail = (e) => { if (!failure) failure = e instanceof KFError ? e : new KFError('encode', 'Re-encoding failed: ' + (e && e.message ? e.message : e)); };
+
+    const encoder = new VideoEncoder({
+      output: (chunk, meta) => {
+        if (!description && meta && meta.decoderConfig && meta.decoderConfig.description) {
+          const d = meta.decoderConfig.description;
+          description = d instanceof ArrayBuffer ? new Uint8Array(d.slice(0)) : new Uint8Array(d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength));
+        }
+        const data = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(data);
+        index.push([blobs.length, pendingSize, data.length]);
+        pending.push(data); pendingSize += data.length;
+        if (pendingSize >= 8 * 1048576) park();
+        out.pts.push(chunk.timestamp); out.dur.push(chunk.duration || 0); out.key.push(chunk.type === 'key' ? 1 : 0); out.size.push(data.length);
+        encoded++;
+        if (o.onProgress) o.onProgress(encoded, n);
+      },
+      error: fail,
+    });
+    encoder.configure(ecfg);
+    let canvas = null, ctx = null;
+    if (scale) {
+      canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
+      ctx = canvas.getContext('2d');
+    }
+    const decoder = new VideoDecoder({
+      output: (frame) => {
+        try {
+          if (failure) { frame.close(); return; }
+          const tsUs = frame.timestamp;
+          if (tsUs < -500) { frame.close(); return; } // pre-roll frames hidden by the edit list
+          let fr = frame;
+          if (scale) {
+            ctx.drawImage(frame, 0, 0, w, h);
+            fr = new VideoFrame(canvas, { timestamp: tsUs, duration: frame.duration || undefined });
+            frame.close();
+          }
+          let key = false;
+          while (kfNext < KEYFRAME_TIMES.length && tsUs / 1e6 >= KEYFRAME_TIMES[kfNext] - 0.0005) { key = true; kfNext++; }
+          encoder.encode(fr, { keyFrame: key || fed === 0 });
+          fed++;
+          fr.close();
+        } catch (e) { try { frame.close(); } catch (x) { /* closed */ } fail(e); }
+      },
+      error: fail,
+    });
+    decoder.configure(Object.assign({ hardwareAcceleration: 'no-preference' }, dcfg));
+
+    const cleanup = () => { try { decoder.close(); } catch (e) { /* closed */ } try { encoder.close(); } catch (e) { /* closed */ } };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    try {
+      // read compressed samples in contiguous runs (fewer reads on phones)
+      let runStart = -1, runEnd = -1, runBuf = null;
+      for (let i = 0; i < n; i++) {
+        if (o.signal && o.signal.aborted) throw new KFError('cancelled', 'Cancelled.');
+        if (failure) throw failure;
+        while (decoder.decodeQueueSize > 8 || encoder.encodeQueueSize > 8) {
+          if (failure) throw failure;
+          if (o.signal && o.signal.aborted) throw new KFError('cancelled', 'Cancelled.');
+          await sleep(4);
+        }
+        const off = tbl.offs[i], z = tbl.sizes[i];
+        if (!(runBuf && off >= runStart && off + z <= runEnd)) {
+          let end = off + z, j = i + 1;
+          while (j < n && tbl.offs[j] === end && end - off < 4 * 1048576) { end += tbl.sizes[j]; j++; }
+          runBuf = await readBytes(f.blob, off, end); runStart = off; runEnd = end;
+        }
+        const data = runBuf.subarray(off - runStart, off - runStart + z);
+        const ptsUs = Math.round(((tm.dts[i] + tm.cts[i] - tm.mediaTime) * 1e6) / ts);
+        const durUs = Math.max(1, Math.round(((tm.dts[i + 1] - tm.dts[i]) * 1e6) / ts));
+        decoder.decode(new EncodedVideoChunk({ type: isKey[i] || i === 0 ? 'key' : 'delta', timestamp: ptsUs, duration: durUs, data }));
+      }
+      await decoder.flush();
+      if (failure) throw failure;
+      await encoder.flush();
+      if (failure) throw failure;
+    } catch (e) {
+      cleanup();
+      throw e instanceof KFError ? e : new KFError('encode', 'Re-encoding failed: ' + (e && e.message ? e.message : e));
+    }
+    cleanup();
+    park();
+    if (fourcc === 'avc1' && !description) throw new KFError('encode', "The encoder didn't return its H.264 setup, so the file can't be written.");
+    const TS = 90000;
+    const v = {
+      fourcc, codec: ecfg.codec, description, width: w, height: h, matrix, timescale: TS,
+      pts: out.pts.map((x) => Math.round((x * TS) / 1e6)),
+      dur: out.dur.map((x) => Math.round((x * TS) / 1e6)),
+      key: out.key, size: out.size,
+      part: (i) => { const r = index[i]; return blobs[r[0]].slice(r[1], r[1] + r[2]); },
+    };
+    const p = P(f.mvhd);
+    const movieTs = b[p] === 1 ? u32(b, p + 20) : u32(b, p + 12);
+    const blob = muxEncoded(v, state.sel.audio ? { f, t: state.sel.audio } : null, movieTs || 1000);
+    return { blob, frames: encoded, width: w, height: h, codec: ecfg.codec, bitrate: ecfg.bitrate };
+  }
+
+  // ---------- public API ----------
+  async function inspect(blob) {
+    const f = await load(blob);
+    if (f.fragmented) throw new KFError('fragmented', 'This is a fragmented MP4 (common for screen and live recordings). Re-export it from your editor first.');
+    const sel = pickTracks(f);
+    if (!sel.video) throw new KFError('no_video', 'No readable video track found in this file.');
+    return { f, sel, info: summarize(f, sel) };
+  }
+
+  async function patch(state, method) {
+    const m = METHODS[method];
+    if (!m) throw new KFError('method', 'Unknown method.');
+    const built = m.build(state.f, state.sel);
+    const blob = new Blob(built.parts, { type: 'video/mp4' });
+    if (blob.size !== built.size) throw new KFError('size', 'Internal size mismatch. Nothing was saved.');
+    const check = await verify(state, blob, built);
+    return { blob, size: blob.size, changes: built.changes, checked: check.checked, divider: built.divider };
+  }
+
+  const api = { inspect, patch, reencode, canReencode, fpsDivider, KFError, METHODS, _internal: { load, pickTracks, summarize, makeLocator, sttsRead, sizesRead, sampleTable, timing, decoderConfig, muxEncoded } };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.Keepframe = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+</script>
+<script>
+(function () {
+  'use strict';
+  var KF = window.Keepframe;
+  var $ = function (id) { return document.getElementById(id); };
+  var SAMPLE_B64 = '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AAAAWm1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAALWlsc3QAAAAlqXRvbwAAAB1kYXRhAAAAAQAAAABMYXZmNjAuMTYuMTAwAAAACGZyZWUAAEgObWRhdAAAArAGBf//rNxF6b3m2Ui3lizYINkj7u94MjY0IC0gY29yZSAxNjQgcjMxMDggMzFlMTlmOSAtIEguMjY0L01QRUctNCBBVkMgY29kZWMgLSBDb3B5bGVmdCAyMDAzLTIwMjMgLSBodHRwOi8vd3d3LnZpZGVvbGFuLm9yZy94MjY0Lmh0bWwgLSBvcHRpb25zOiBjYWJhYz0xIHJlZj0xNiBkZWJsb2NrPTE6MDowIGFuYWx5c2U9MHgzOjB4MTMzIG1lPXVtaCBzdWJtZT0xMCBwc3k9MSBwc3lfcmQ9MS4wMDowLjAwIG1peGVkX3JlZj0xIG1lX3JhbmdlPTI0IGNocm9tYV9tZT0xIHRyZWxsaXM9MiA4eDhkY3Q9MSBjcW09MCBkZWFkem9uZT0yMSwxMSBmYXN0X3Bza2lwPTEgY2hyb21hX3FwX29mZnNldD0tMiB0aHJlYWRzPTMgbG9va2FoZWFkX3RocmVhZHM9MSBzbGljZWRfdGhyZWFkcz0wIG5yPTAgZGVjaW1hdGU9MSBpbnRlcmxhY2VkPTAgYmx1cmF5X2NvbXBhdD0wIGNvbnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz04IGJfcHlyYW1pZD0yIGJfYWRhcHQ9MiBiX2JpYXM9MCBkaXJlY3Q9MyB3ZWlnaHRiPTEgb3Blbl9nb3A9MCB3ZWlnaHRwPTIga2V5aW50PTI1MCBrZXlpbnRfbWluPTI1IHNjZW5lY3V0PTQwIGludHJhX3JlZnJlc2g9MCByY19sb29rYWhlYWQ9NjAgcmM9Y3JmIG1idHJlZT0xIGNyZj0yNi4wIHFjb21wPTAuNjAgcXBtaW49MCBxcG1heD02OSBxcHN0ZXA9NCBpcF9yYXRpbz0xLjQwIGFxPTE6MS4wMACAAAAE5WWIgQAG//72c3wKWswlS4Fdvdmo+XQk5oAKM7cVhNtwAFHLAjPZ8o6J34WBgOaTpjDoJcDaHFKk2Vhp0eaIAapMPRBDF3neMLS6gAkqDKZCASlzZuMAd5ZNyf0+aAO+g8BC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7w6bM88lAJETHKUTMFwQiR7QFW4foPJ/nPJ+nOm+kdL3Td8wzPMLfQUdA92yjoKOgo7Zb6CjoKOgo3j+H0qToKOgo6CjoKOgo6CjoHt4e3h7eHt4gxBxBxBxBxBxBxBzDWQ1REdFPFf5u7q6urq3nnnnnnnogAAAAAAwb550GAABq/IwAAAA1/vmwAAcxzoxFoRCARCAvCAfE17+3DK5/9P7f/9/iUq7XHdPWSj9v3AAAAAAAAAAAAAAAcAAAABYQZoaSTUCAtEymBDf/jhAAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAOIeEFrNy5cAnTfH8YrxKANSDcf2I2CEAAAAwAAAwAAAwACbyEaD////GoDfdYHYdHISDoRCAZCAlCAXEy81J3X/T/6f//fjW2ea1xXecPiPCfx+vjIEx08dVlV5eH3Hl75s4H5hpvnTlOVAG1OWHyslWLlSbV7bjyXwS4DzPgErilwPmfVmb70vekKTjyP48bbYbbYvekKTqyr48fb4fb4fb4q+PJD3DawWxm/Nmb82Xvenp+h5/mdPodPoR4keJHiR4j7z7z7z7z7yuqK6orqiupkyQOtZjw//C0kxMTExRRRRRRRREAAM/+f3EA4+4AAABr/2QAAN450Yi0IhAIhAXhAPiZeak7r/p/9P//vxrbPNa4rvOHxHhP4/UAAAAAAAAAAAAAABwAAAEFBniGtxCv/AAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAAz4AAAAEEBnilNoj//AAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAABcQCEaD////FoDlbqMxLDo7CAREAXCAnCAZE1zXnL3X/p/b/+T4lT8/y1458zl7SXn7fVd9BKmaWpKmSpp5p6Mae41863D519d/BG26CtRkJDowKsZr5csG+4+tdq9ldw9lbF0ltO1Zzis5xWJswIQIWc4rE4qy2adnp2enZ7E4rOcz9jyrDHDHDF2dnZ2wxwxwxwxwxwxwxwxwxFGFGFGFE4jtopizLgFxgowowoxpgDLEAAI9j5wDP6QAAADX/obAAByHOjEIBEQBEIC8IB8TXNecvdf+n9v/5PiVPz/LXjnzOXtJeft9AAAAAAAAAAAAAAAOAAAAEEBniltoj//AAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAABcQSEaD////moDmxLhRLCQdFISDoRCAbCAnCAZE1u+Obrn/4/t//5+91MucZbw5eks/b9+fHAZ6a77ee+OKPgEd5Y3nz58/vDpsyfAyYQiWBASrvCqNyB2gKtw/QeT1oH6PyTtPhmr88Z71ZnvLF9xxHcAgciR3HEdwCBxxHcAgcAgd8X3IlchooFz0FHQUdBR2y32y30FHQUdBR0FHQUbw9iDiDiDiDiDoEaBGgRoBq2O6HnnnnnqeK/zd3V1dXVvPPPPPPPRAAAAAABg3zzoMAADV/cwAAAA1/vmwAAcx1ohFoRCARCAvCAfE1u+Obrn/4/t//5+91MucZbw5eks/b9wAAAAAAAAAAAAAAAHAAAAQQGeKY2iP/8AAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAAMAAFxBIRoP///8agOF2QVh0chIOhEIBkICUIBkSsu2u8/4/+P//3nWXzpxXn579nvG0/j8d5wDx08dXrnl4v74j+kOB+Yab50536gNqcuF0FFbRcqU8ltuNOo+oOB8qS+DzDgfKmb70vekM33pe9INtsNtsPt8Pt8NtsNtsNtsNtUj+PH/n33JsNtsNtsNtsXvel73pSdIUnSH+b/N/m/zTTTTTL1y9cvXH2eTzaFmPD/8LSTExMTFFFFFFFFEQAAz/r+lAOPuAAAAa/9DYAAOA50Yi0IhAIhAXhAPiVl213n/H/x//+86y+dOK8/Pfs942n8fgAAAAAAAAAAAAAABwAAAAEEBninMkj//AAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAABcQQAAAEEBninskj//AAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAAADAABcQCEaD////FoDfb6OwrDo7CAREAXCAnCAZEVz5qbf/h/2///fF0aam8nL5kvP2+s56DS1NLU0tSVNPNPU7iXGvnW4fOvqv/I23QatIFAkKsZr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';
+  var NAMES = { passthrough: 'Passthrough', density: 'Density', fps: 'FPS' };
+  var METHOD_INFO = {
+    passthrough: {
+      src: 'Editing News method · touches mvhd, trak, udta, tail',
+      text: "Rebuilds the header the way the Editing News patcher does. The audio track is cloned with a 10× sample table, the length is marked unknown, and a small pad goes on the end. TikTok's transcoder is reported to skip these files and keep your own encode."
+    },
+    density: {
+      src: 'NoBlur method · touches stsz, stts, stsc, stco',
+      text: 'Adds nine tiny placeholder samples per real frame after the end of the video, so the file reads as very high density and TikTok compresses it less. Works on clips without audio and adds well under 1% to the size.'
+    },
+    fps: {
+      src: '120fps-method · touches mvhd, mdhd',
+      text: "Divides the time scale by 2 for 60 fps or by 4 for 120 fps, so TikTok's upload check reads 30 fps and keeps every frame. Players on this phone may show the patched file slowed down. Uploads are reported to play at normal speed."
+    }
+  };
+  var NOTES = {
+    passthrough: 'Your gallery may show the length as 0:00. That is expected.',
+    density: 'Plays normally here. The extra samples sit after the last frame.',
+    fps: 'This copy may play slowed down on your phone. Upload it as it is.'
+  };
+  var MAX_FILES = 20;
+  var canRe = KF.canReencode();
+
+  var state = { gen: 0, queue: [], sel: 0, method: 'passthrough', re: { on: false, rate: 'auto', cap: true }, results: [], busy: false, abort: null, pvUrl: null };
+
+  // ---------- remembered settings ----------
+  function loadPrefs() {
+    try {
+      var p = JSON.parse(localStorage.getItem('keepframe.prefs') || '{}');
+      if (p.method && METHOD_INFO[p.method]) state.method = p.method;
+      if (p.re) { state.re.on = !!p.re.on && canRe; state.re.rate = String(p.re.rate || 'auto'); state.re.cap = p.re.cap !== false; }
+    } catch (e) { /* storage unavailable */ }
+  }
+  function savePrefs() {
+    try { localStorage.setItem('keepframe.prefs', JSON.stringify({ method: state.method, re: state.re })); } catch (e) { /* storage unavailable */ }
+  }
+
+  // ---------- formatting ----------
+  function fmtBytes(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB';
+    if (n < 1073741824) return (n / 1048576).toFixed(n < 104857600 ? 1 : 0) + ' MB';
+    return (n / 1073741824).toFixed(2) + ' GB';
+  }
+  function fmtFps(f) { return Math.abs(f - Math.round(f)) < 0.01 ? String(Math.round(f)) : f.toFixed(2); }
+  function fmtRate(bps) { var m = bps / 1e6; return (m < 1 ? m.toFixed(2) : m < 10 ? m.toFixed(1) : m.toFixed(0)) + ' Mb/s'; }
+  function fmtLen(sec) { var m = Math.floor(sec / 60); var s = sec - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1); }
+  function fmtClock(sec) { sec = Math.max(0, Math.round(sec)); return Math.floor(sec / 60) + ':' + ('0' + (sec % 60)).slice(-2); }
+  function fmtTC(sec, fps) {
+    var f = Math.max(1, Math.round(fps || 30));
+    var total = Math.round(sec * f), ff = total % f, s = Math.floor(total / f);
+    return [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60, ff].map(function (v) { return (v < 10 ? '0' : '') + v; }).join(':');
+  }
+  function chans(n) { return n === 1 ? 'mono' : n === 2 ? 'stereo' : n + ' ch'; }
+
+  // ---------- checks and method choice ----------
+  function checks(info) {
+    var v = info.video, a = info.audio, out = [];
+    function add(level, text) { out.push([level, text]); }
+    if (info.patched) add('warn', 'Already patched: use your original export');
+    if (v.codec === 'H.264') add('good', 'H.264');
+    else if (v.codec === 'HEVC') add('warn', 'HEVC: H.264 works best');
+    else add('bad', v.codec + ': export as H.264');
+    var short = Math.min(v.width, v.height);
+    if (short > 1080) add('info', (short >= 2160 ? '4K' : short + 'p') + ': TikTok plays 1080p max');
+    else if (short >= 720) add('good', short + 'p');
+    else add('warn', short + 'p: low resolution');
+    if (v.fps > 61) add('info', fmtFps(v.fps) + ' fps: TikTok plays 60 max');
+    else if (v.fps >= 23) add('good', fmtFps(v.fps) + ' fps' + (v.vfr ? ', variable' : ''));
+    else add('warn', fmtFps(v.fps) + ' fps: choppy');
+    var mb = v.bitrate / 1e6;
+    if (mb >= 8) add('good', fmtRate(v.bitrate));
+    else if (mb >= 4) add('warn', fmtRate(v.bitrate) + ': low bitrate');
+    else add('warn', fmtRate(v.bitrate) + ': very low bitrate');
+    if (a) add('good', a.codec + ' audio'); else add('warn', 'No audio track');
+    if (v.hdr) add('warn', v.hdr + ': export in SDR');
+    return out;
+  }
+  function availability(info) {
+    return {
+      passthrough: info.audio ? '' : 'This clip has no audio track, which Passthrough needs.',
+      density: '',
+      fps: KF.fpsDivider(info.video.fps) ? '' : 'FPS needs a 60 or 120 fps clip; this one is ' + fmtFps(info.video.fps) + ' fps.'
+    };
+  }
+  function methodFor(info, m) {
+    var av = availability(info);
+    if (!av[m]) return m;
+    return !av.passthrough ? 'passthrough' : 'density';
+  }
+  function current() { return state.queue[state.sel] || null; }
+  function readable() { return state.queue.filter(function (q) { return q.st; }); }
+
+  // ---------- rendering ----------
+  function renderMethods() {
+    ['passthrough', 'density', 'fps'].forEach(function (m) {
+      var b = $('m-' + m);
+      var cur = current();
+      b.setAttribute('aria-checked', String(state.method === m));
+      b.classList.toggle('na', !!(cur && cur.st && availability(cur.st.info)[m]));
+      b.tabIndex = state.method === m ? 0 : -1;
+    });
+    var info = METHOD_INFO[state.method];
+    var d = $('mdesc');
+    d.textContent = '';
+    var src = document.createElement('span'); src.className = 'src'; src.textContent = info.src; d.appendChild(src);
+    d.appendChild(document.createTextNode(info.text));
+    var cur = current();
+    if (cur && cur.st) {
+      var why = availability(cur.st.info)[state.method];
+      if (why) {
+        var w = document.createElement('span'); w.className = 'why';
+        w.textContent = why + ' It will use ' + NAMES[methodFor(cur.st.info, state.method)] + ' instead.';
+        d.appendChild(w);
+      }
+    }
+    renderGo();
+  }
+  function renderGo() {
+    var n = readable().length;
+    var go = $('go');
+    go.disabled = !n || state.busy;
+    if (state.busy) return;
+    var many = n > 1 ? ' ' + n + ' videos' : '';
+    go.textContent = state.re.on ? (n > 1 ? 'Re-encode + patch' + many : 'Re-encode + patch') : (n > 1 ? 'Patch' + many : 'Patch video');
+  }
+  function renderRe() {
+    $('reOn').checked = state.re.on;
+    $('reOn').disabled = !canRe || state.busy;
+    $('reNo').hidden = canRe;
+    $('reOpts').hidden = !state.re.on;
+    $('reRate').value = state.re.rate;
+    $('re1080').checked = state.re.cap;
+    var cur = current(), t = $('reTime');
+    t.className = 'small';
+    t.textContent = 'Takes about as long as the clip plays. Keep this page open with the screen on.';
+    if (cur && cur.st && cur.st.info.video.hdr) { t.className = 'small warn'; t.textContent = cur.st.info.video.hdr + ' clips can look washed out after re-encoding. Export in SDR if you can.'; }
+    renderGo();
+  }
+
+  function renderFile() {
+    var c = current();
+    if (!c) return;
+    $('fname').textContent = c.name;
+    $('ftag').hidden = !c.sample;
+    if (c.error || !c.st) {
+      $('fsub').textContent = c.error ? fmtBytes(c.file.size || 0) : 'Reading header…';
+      $('chips').textContent = '';
+      ['rRes', 'rFps', 'rLen', 'rCodec', 'rRate', 'rAudio'].forEach(function (id) { $(id).textContent = '–'; });
+      $('tc').textContent = '--:--:--:--';
+      $('pv').hidden = true; $('nopv').hidden = false;
+      if (c.error) showError(c.name + ': ' + c.error);
+      return;
+    }
+    var info = c.st.info, v = info.video, a = info.audio;
+    $('fsub').textContent = fmtBytes(info.size) + ' · ' + info.container + (c.sample ? ' · built-in test clip' : '');
+    $('rRes').textContent = v.width + ' × ' + v.height;
+    $('rFps').textContent = fmtFps(v.fps) + ' fps' + (v.vfr ? ' (var.)' : '');
+    $('rLen').textContent = fmtLen(info.duration);
+    $('rCodec').textContent = v.codec + (v.hdr ? ' ' + v.hdr : '');
+    $('rRate').textContent = fmtRate(v.bitrate);
+    $('rAudio').textContent = a ? a.codec + ' · ' + Math.round(a.sampleRate / 100) / 10 + ' kHz' + (a.channels ? ' · ' + chans(a.channels) : '') : 'None';
+    $('tc').textContent = fmtTC(info.duration, v.fps);
+    $('monitor').style.aspectRatio = v.width + ' / ' + v.height;
+    var ul = $('chips');
+    ul.textContent = '';
+    checks(info).forEach(function (ch) {
+      var li = document.createElement('li'); li.className = 'chip ' + ch[0]; li.textContent = ch[1]; ul.appendChild(li);
+    });
+  }
+
+  function statusOf(q) {
+    if (q.error) return ['bad', "Can't read"];
+    if (!q.st) return ['info', 'Reading'];
+    if (q.status === 'done') return ['good', 'Patched'];
+    if (q.status === 'failed') return ['bad', 'Failed'];
+    if (q.status === 'working') return ['info', 'Working'];
+    var used = methodFor(q.st.info, state.method);
+    return used !== state.method ? ['info', 'Uses ' + NAMES[used]] : ['good', 'Ready'];
+  }
+  function renderQueue() {
+    var wrap = $('queueWrap'), ul = $('queue');
+    wrap.hidden = state.queue.length < 2;
+    if (wrap.hidden) return;
+    ul.textContent = '';
+    state.queue.forEach(function (q, i) {
+      var li = document.createElement('li');
+      var bt = document.createElement('button');
+      bt.type = 'button'; bt.className = 'qrow'; bt.dataset.i = String(i);
+      if (i === state.sel) bt.setAttribute('aria-current', 'true');
+      var nm = document.createElement('span'); nm.className = 'qname'; nm.textContent = q.name;
+      var mt = document.createElement('span'); mt.className = 'qmeta';
+      mt.textContent = q.st ? q.st.info.video.width + '×' + q.st.info.video.height + ' · ' + fmtFps(q.st.info.video.fps) + ' fps · ' + fmtBytes(q.st.info.size) : (q.error || 'Reading…');
+      var s = statusOf(q);
+      var ch = document.createElement('span'); ch.className = 'chip ' + s[0]; ch.textContent = s[1];
+      bt.appendChild(nm); bt.appendChild(ch); bt.appendChild(mt);
+      li.appendChild(bt); ul.appendChild(li);
+    });
+  }
+
+  function setPreview(file) {
+    var pv = $('pv');
+    if (state.pvUrl) { URL.revokeObjectURL(state.pvUrl); state.pvUrl = null; }
+    $('nopv').hidden = true;
+    pv.hidden = false;
+    try { state.pvUrl = URL.createObjectURL(file); pv.src = state.pvUrl; } catch (e) { pv.hidden = true; $('nopv').hidden = false; }
+  }
+  $('pv').addEventListener('loadedmetadata', function () {
+    var pv = $('pv');
+    try { pv.currentTime = Math.min(0.1, (pv.duration || 1) / 2); } catch (e) { /* ignore */ }
+  });
+  $('pv').addEventListener('error', function () { $('pv').hidden = true; $('nopv').hidden = false; });
+  $('monitor').addEventListener('click', function () {
+    var pv = $('pv');
+    if (pv.hidden) return;
+    if (pv.paused) { var p = pv.play(); if (p && p.catch) p.catch(function () {}); } else pv.pause();
+  });
+
+  function showError(msg) { var e = $('err'); e.textContent = msg; e.hidden = false; }
+  function clearError() { $('err').hidden = true; }
+  function clearResult() { state.results = []; $('resultSec').hidden = true; $('saveMsg').textContent = ''; }
+
+  function select(i) {
+    state.sel = i;
+    clearError();
+    renderFile(); renderQueue(); renderMethods(); renderRe();
+    var c = current();
+    if (c && c.st) setPreview(c.file);
+  }
+
+  // ---------- loading files ----------
+  function addFiles(list, isSample) {
+    if (state.busy) return Promise.resolve();
+    var files = Array.prototype.slice.call(list, 0, MAX_FILES);
+    if (!files.length) return Promise.resolve();
+    clearError(); clearResult();
+    var gen = ++state.gen;
+    state.queue = files.map(function (f) { return { file: f, name: f.name || 'video.mp4', sample: !!isSample, st: null, error: null, status: '' }; });
+    state.sel = 0;
+    renderQueue(); renderFile(); renderGo();
+    var chain = Promise.resolve();
+    state.queue.forEach(function (q) {
+      chain = chain.then(function () {
+        if (gen !== state.gen) return;
+        return KF.inspect(q.file).then(function (st) { q.st = st; }, function (e) { q.error = e && e.message ? e.message : "Couldn't read this file."; });
+      }).then(function () { if (gen === state.gen) renderQueue(); });
+    });
+    return chain.then(function () {
+      if (gen !== state.gen) return;
+      var first = state.queue.findIndex(function (q) { return q.st; });
+      select(first >= 0 ? first : 0);
+      if (list.length > MAX_FILES) showError('Only the first ' + MAX_FILES + ' videos were added.');
+    });
+  }
+
+  function outName(name, method) {
+    var base = String(name).replace(/\.[^.]{1,5}$/, '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').trim().slice(0, 80) || 'video';
+    return base + '-' + KF.METHODS[method].suffix + '.mp4';
+  }
+  function bitrateFor(info) {
+    if (state.re.rate !== 'auto') return Number(state.re.rate) * 1e6;
+    var src = info.video.bitrate * (info.video.codec === 'H.264' ? 1 : 1.4);
+    return Math.max(10e6, Math.min(20e6, src || 12e6));
+  }
+
+  // ---------- running ----------
+  function progress(k, total, frac, label, t0) {
+    var all = (k + Math.max(0, Math.min(1, frac))) / total;
+    $('pfill').style.width = (all * 100).toFixed(1) + '%';
+    var txt = label + (total > 1 ? ' ' + (k + 1) + ' of ' + total : '') + ' · ' + Math.round(frac * 100) + '%';
+    if (t0 && frac > 0.03 && frac < 1) { var el = (performance.now() - t0) / 1000; txt += ' · ' + fmtClock(el * (1 - frac) / frac) + ' left'; }
+    $('ptext').textContent = txt;
+  }
+  var lock = null;
+  function wake() {
+    try { if (navigator.wakeLock && navigator.wakeLock.request) navigator.wakeLock.request('screen').then(function (l) { lock = l; }, function () {}); } catch (e) { /* not available */ }
+  }
+  function unwake() { try { if (lock) lock.release(); } catch (e) { /* ignore */ } lock = null; }
+  document.addEventListener('visibilitychange', function () { if (state.busy && state.re.on && document.visibilityState === 'visible') wake(); });
+
+  function setBusy(on) {
+    state.busy = on;
+    $('prog').hidden = !on || !state.re.on;
+    $('drop').disabled = on;
+    $('go').disabled = on || !readable().length;
+    if (on) $('go').textContent = state.re.on ? 'Working…' : 'Patching…';
+    renderRe();
+  }
+
+  function run() {
+    var items = readable();
+    if (!items.length || state.busy) return;
+    clearError(); clearResult();
+    var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    state.abort = ctrl;
+    setBusy(true);
+    if (state.re.on) { wake(); progress(0, items.length, 0, 'Re-encoding'); }
+    var results = [], failures = [], cancelled = false;
+    var chain = Promise.resolve();
+    items.forEach(function (it, k) {
+      chain = chain.then(function () {
+        if (cancelled) return;
+        var m = methodFor(it.st.info, state.method);
+        it.status = 'working'; renderQueue();
+        var t0 = performance.now();
+        var step = state.re.on
+          ? KF.reencode(it.st, {
+              bitrate: bitrateFor(it.st.info),
+              maxShort: state.re.cap ? 1080 : 0,
+              signal: ctrl ? ctrl.signal : undefined,
+              onProgress: function (done, total) { progress(k, items.length, done / total, 'Re-encoding', t0); }
+            }).then(function (re) { progress(k, items.length, 1, 'Patching'); return KF.inspect(re.blob).then(function (st2) { return { st: st2, re: re }; }); })
+          : Promise.resolve({ st: it.st, re: null });
+        return step.then(function (x) {
+          return KF.patch(x.st, m).then(function (res) {
+            results.push({ name: outName(it.name, m), blob: res.blob, size: res.size, checked: res.checked, changes: res.changes, method: m, fell: m !== state.method, re: x.re, srcSize: it.st.info.size });
+            it.status = 'done';
+          });
+        }).catch(function (e) {
+          if (e && e.code === 'cancelled') { cancelled = true; it.status = ''; return; }
+          it.status = 'failed';
+          failures.push({ name: it.name, msg: e && e.message ? e.message : 'Failed.' });
+        }).then(function () { renderQueue(); });
+      });
+    });
+    chain.then(function () {
+      unwake();
+      state.abort = null;
+      setBusy(false);
+      state.results = results;
+      renderResults(failures, cancelled);
+      renderGo();
+    });
+  }
+  $('cancel').addEventListener('click', function () { if (state.abort) state.abort.abort(); $('ptext').textContent = 'Cancelling…'; });
+
+  function renderResults(failures, cancelled) {
+    var rs = state.results;
+    if (!rs.length) {
+      if (cancelled) showError('Cancelled. Nothing was saved.');
+      else if (failures.length) showError(failures.length === 1 ? failures[0].msg : failures.map(function (f) { return f.name + ': ' + f.msg; }).join(' · '));
+      return;
+    }
+    $('rHead').textContent = rs.length === 1 ? 'Ready to upload' : rs.length + ' videos ready';
+    var ul = $('outs'); ul.textContent = '';
+    rs.forEach(function (r, i) {
+      var li = document.createElement('li');
+      var box = document.createElement('div');
+      var code = document.createElement('code'); code.textContent = r.name;
+      var small = document.createElement('small');
+      var grow = r.re ? '' : (r.size - r.srcSize > 0 ? ' (+' + fmtBytes(r.size - r.srcSize) + ')' : ' (same size)');
+      small.textContent = fmtBytes(r.size) + grow + ' · ' + NAMES[r.method] + (r.fell ? ' (fallback)' : '') + (r.re ? ' · re-encoded ' + fmtRate(r.re.bitrate) : '');
+      box.appendChild(code); box.appendChild(small); li.appendChild(box);
+      if (rs.length > 1) {
+        var b = document.createElement('button'); b.type = 'button'; b.className = 'btn ghost mini'; b.textContent = 'Save'; b.dataset.i = String(i);
+        b.addEventListener('click', function () { saveSome([r]); });
+        li.appendChild(b);
+      }
+      ul.appendChild(li);
+    });
+    failures.forEach(function (f) {
+      var li = document.createElement('li'); li.className = 'bad';
+      var box = document.createElement('div');
+      var code = document.createElement('code'); code.textContent = f.name;
+      var small = document.createElement('small'); small.textContent = f.msg;
+      box.appendChild(code); box.appendChild(small); li.appendChild(box); ul.appendChild(li);
+    });
+    var anyRe = rs.some(function (r) { return r.re; });
+    var r0 = rs[0];
+    $('outCheck').textContent = anyRe
+      ? 'Re-encoded on this phone, then patched. Each patched file was checked against its re-encoded copy: identical media bytes.'
+      : (rs.length === 1 ? 'Checked ' + r0.checked + ' frames and audio samples against your original: identical bytes.' : 'Each file was checked against its original: identical media bytes.');
+    var used = [];
+    rs.forEach(function (r) { if (used.indexOf(r.method) < 0) used.push(r.method); });
+    $('outNote').textContent = used.map(function (m) { return NOTES[m]; }).join(' ') + (cancelled ? ' Cancelled before the rest finished.' : '');
+    $('save').textContent = rs.length === 1 ? 'Save video' : 'Save all';
+    var ch = $('changes'); ch.textContent = '';
+    r0.changes.forEach(function (c) {
+      var li = document.createElement('li');
+      var code = document.createElement('code'); code.textContent = c[0];
+      var span = document.createElement('span'); span.textContent = c[1];
+      li.appendChild(code); li.appendChild(span); ch.appendChild(li);
+    });
+    var card = $('result');
+    card.classList.remove('fresh'); void card.offsetWidth; card.classList.add('fresh');
+    $('resultSec').hidden = false;
+    $('resultSec').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'nearest' });
+  }
+
+  // ---------- saving ----------
+  // In the Claude viewer the page asks through claude.use("downloads"); a copy opened as a local file uses a normal download link.
+  var dlReady = (window.claude && typeof window.claude.use === 'function')
+    ? Promise.resolve(window.claude.use('downloads')).catch(function () { return null; })
+    : Promise.resolve(null);
+  function saveMsg(t) { $('saveMsg').textContent = t; }
+  function plainDownload(blob, name) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = name; a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 120000);
+  }
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function saveSome(list) {
+    var btn = $('save'); btn.disabled = true;
+    saveMsg(list.length > 1 ? 'Saving 1 of ' + list.length + '…' : 'Preparing…');
+    return dlReady.then(function (dl) {
+      var framed = false;
+      try { framed = window.top !== window; } catch (e) { framed = true; }
+      if (!dl && window.claude && framed) { saveMsg("Saving isn't available in this view. Open this page in your browser and try again."); return; }
+      var saved = 0, declined = 0, stop = '';
+      var chain = Promise.resolve();
+      list.forEach(function (r, i) {
+        chain = chain.then(function () {
+          if (stop) return;
+          if (list.length > 1) saveMsg('Saving ' + (i + 1) + ' of ' + list.length + '…');
+          if (!dl) { plainDownload(r.blob, r.name); saved++; return wait(list.length > 1 ? 700 : 0); }
+          var attempt = function (retry) {
+            return dl.save({ filename: r.name, data: r.blob }).then(function () { saved++; }, function (e) {
+              var code = e && e.code;
+              if (code === 'declined') { declined++; return; }
+              if (code === 'rate_limited' && retry) return wait(1500).then(function () { return attempt(false); });
+              if (code === 'too_large') { stop = 'Too big for the Claude app (200 MB limit). Open this page in Chrome to save larger files.'; return; }
+              stop = "Saving isn't available in this view. Open this page in your browser and try again.";
+            });
+          };
+          return attempt(true);
+        });
+      });
+      return chain.then(function () {
+        if (stop) { saveMsg(stop); return; }
+        if (!dl) { saveMsg(saved > 1 ? 'Started ' + saved + ' downloads. Check your Downloads folder.' : 'Download started. Check your Downloads folder.'); return; }
+        if (!saved) { saveMsg('Not saved.'); return; }
+        saveMsg((saved > 1 ? 'Saved ' + saved + ' videos' : 'Saved') + (declined ? ', skipped ' + declined : '') + '. On Android they go to Downloads; on iPhone pick Save to Files.');
+      });
+    }).then(function () { btn.disabled = false; });
+  }
+
+  // ---------- events ----------
+  var input = $('file');
+  $('drop').addEventListener('click', function () { input.value = ''; input.click(); });
+  input.addEventListener('change', function () { if (input.files && input.files.length) addFiles(input.files, false); });
+  var drop = $('drop');
+  ['dragenter', 'dragover'].forEach(function (t) { drop.addEventListener(t, function (e) { e.preventDefault(); drop.classList.add('over'); }); });
+  ['dragleave', 'drop'].forEach(function (t) { drop.addEventListener(t, function () { drop.classList.remove('over'); }); });
+  drop.addEventListener('drop', function (e) { e.preventDefault(); var fl = e.dataTransfer && e.dataTransfer.files; if (fl && fl.length) addFiles(fl, false); });
+  $('queue').addEventListener('click', function (e) { var b = e.target.closest('button[data-i]'); if (b && !state.busy) select(Number(b.dataset.i)); });
+  function setMethod(m) { if (state.busy || state.method === m) return; state.method = m; savePrefs(); clearResult(); clearError(); renderMethods(); renderQueue(); }
+  $('seg').addEventListener('click', function (e) { var b = e.target.closest('button[data-m]'); if (b) setMethod(b.dataset.m); });
+  $('seg').addEventListener('keydown', function (e) {
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].indexOf(e.key) < 0) return;
+    e.preventDefault();
+    var order = ['passthrough', 'density', 'fps'];
+    var i = order.indexOf(state.method);
+    var next = order[(i + (e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? 2 : 1)) % 3];
+    setMethod(next); $('m-' + next).focus();
+  });
+  $('reOn').addEventListener('change', function () { state.re.on = $('reOn').checked && canRe; savePrefs(); clearResult(); renderRe(); });
+  $('reRate').addEventListener('change', function () { state.re.rate = $('reRate').value; savePrefs(); });
+  $('re1080').addEventListener('change', function () { state.re.cap = $('re1080').checked; savePrefs(); });
+  $('go').addEventListener('click', run);
+  // used by the installed app to hand over videos shared from other apps
+  window.KeepframeApp = { addFiles: function (list) { return addFiles(list, false); } };
+  $('save').addEventListener('click', function () { if (state.results.length) saveSome(state.results); });
+
+  // ---------- start: remembered settings, then the built-in sample so the page shows a real readout ----------
+  loadPrefs();
+  renderMethods(); renderRe();
+  try {
+    var bin = atob(SAMPLE_B64), bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    addFiles([new File([bytes], 'sample-bars.mp4', { type: 'video/mp4' })], true);
+  } catch (e) { $('go').disabled = true; }
+})();
+</script>
+<script>
+(function () {
+  'use strict';
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+  }
+  if (!('caches' in window)) return;
+  var share = new URLSearchParams(location.search).get('share');
+  if (!share) { caches.delete('keepframe-share').catch(function () {}); return; }
+  history.replaceState(null, '', location.pathname);
+  function fail() {
+    var e = document.getElementById('err');
+    e.textContent = "Couldn't receive the shared video. Tap Choose videos and pick it instead.";
+    e.hidden = false;
+  }
+  if (share === 'error') { fail(); return; }
+  caches.open('keepframe-share').then(function (cache) {
+    return cache.keys().then(function (keys) {
+      keys = keys.filter(function (k) { return k.url.indexOf('/__shared/' + share + '/') >= 0; });
+      keys.sort(function (a, b) { return Number(a.url.split('/').pop()) - Number(b.url.split('/').pop()); });
+      return Promise.all(keys.map(function (k) {
+        return cache.match(k).then(function (r) {
+          return r.blob().then(function (blob) {
+            var name = decodeURIComponent(r.headers.get('X-Name') || 'video.mp4');
+            return new File([blob], name, { type: blob.type || 'video/mp4' });
+          });
+        });
+      }));
+    });
+  }).then(function (files) {
+    if (files && files.length && window.KeepframeApp) window.KeepframeApp.addFiles(files); else fail();
+  }).catch(fail);
+})();
+</script>
+</body>
+</html>
